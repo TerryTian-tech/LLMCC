@@ -36,7 +36,7 @@ class _GuiLogHandler(logging.Handler):
 class ConverterApp:
     def __init__(self, root: tk.Tk):
         self.root = root
-        self.root.title("AI繁简转换工具")
+        self.root.title("AI繁简转换工具-V0.1.0")
         self.root.geometry("680x750")
 
         self._cancel_event = threading.Event()
