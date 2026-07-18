@@ -25,7 +25,7 @@ python main.py
 ## 配置
 
 首次运行 GUI 时填写 API Base URL、模型名和 API Key。配置会保存在 `.ts_converter_config.json` 中。
-AI 判断结果会缓存在 `.ts_converter_cache.json ` 中，默认为当前用户目录下的 'users/<username>' 目录下。
+AI 判断结果会缓存在 `.ts_converter_cache.json ` 中，默认为当前用户的 `users/你的用户名` 目录下。
 
 ## 映射字表
 
