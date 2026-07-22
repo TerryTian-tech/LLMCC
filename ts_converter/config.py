@@ -12,7 +12,7 @@ class Config:
     api_base_url: str = "https://api.openai.com/v1"
     api_model: str = "gpt-4o-mini"
     api_key: str = ""
-    context_window: int = 30
+    context_window: int = 10
     batch_size: int = 8
     save_api_key: bool = False
     retry_count: int = 3

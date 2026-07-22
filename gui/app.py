@@ -1,6 +1,5 @@
 """tkinter 图形界面。"""
 import logging
-import sys
 import threading
 import tkinter as tk
 from pathlib import Path
@@ -8,16 +7,13 @@ from tkinter import filedialog, messagebox, scrolledtext, ttk
 
 from ts_converter.ai_client import AIClient
 from ts_converter.cache import TranslationCache
-from ts_converter.config import Config, load_config, save_config
+from ts_converter.config import load_config, save_config
 from ts_converter.converter import Converter
 from ts_converter.mapping import load_mappings
-from ts_converter.utils import process_file
 
 DEFAULT_CONFIG_PATH = Path.home() / ".ts_converter_config.json"
 DEFAULT_CACHE_PATH = Path.home() / ".ts_converter_cache.json"
 DATA_DIR = Path(__file__).resolve().parent.parent / "data"
-
-DIRECTION_LABEL = {"s2t": "繁", "t2s": "简"}
 
 
 class _GuiLogHandler(logging.Handler):
@@ -36,7 +32,7 @@ class _GuiLogHandler(logging.Handler):
 class ConverterApp:
     def __init__(self, root: tk.Tk):
         self.root = root
-        self.root.title("AI繁简转换工具-V0.1.0")
+        self.root.title("AI繁简转换工具-V0.2")
         self.root.geometry("680x750")
 
         self._cancel_event = threading.Event()
@@ -102,7 +98,7 @@ class ConverterApp:
         )
         tk.Label(
             frame_out,
-            text="输出文件名自动生成：例如 五帝本纪.txt → 五帝本纪_繁.txt",
+            text="输出文件名由转换器自动生成（如 convert_xxx.txt）",
             fg="gray",
         ).grid(row=1, column=1, sticky="w", pady=(0, 2))
         frame_out.columnconfigure(1, weight=1)
@@ -220,7 +216,16 @@ class ConverterApp:
     # ── 浏览 ──────────────────────────────────────────────
 
     def _browse_input_file(self):
-        path = filedialog.askopenfilename(filetypes=[("Text files", "*.txt")])
+        path = filedialog.askopenfilename(
+            filetypes=[
+                ("所有支持的文件", "*.txt;*.srt;*.ass;*.ssa;*.lrc;*.doc;*.docx;*.epub"),
+                ("文本文件", "*.txt"),
+                ("字幕文件", "*.srt;*.ass;*.ssa;*.lrc"),
+                ("Word 文档", "*.doc;*.docx"),
+                ("EPUB 电子书", "*.epub"),
+                ("所有文件", "*.*"),
+            ]
+        )
         if path:
             self.input_var.set(path)
 
@@ -304,42 +309,14 @@ class ConverterApp:
         self._cancel_event.set()
         self._log("正在取消…")
 
-    def _make_output_name(self, input_file: Path, direction: str) -> str:
-        """生成输出文件名：五帝本纪.txt → 五帝本纪_繁.txt"""
-        suffix = DIRECTION_LABEL.get(direction, direction)
-        return f"{input_file.stem}_{suffix}{input_file.suffix}"
-
     def _convert_worker(
         self, input_path: Path, output_dir: Path, direction: str
     ):
         try:
             if input_path.is_file():
-                out_file = output_dir / self._make_output_name(input_path, direction)
-                self._log(f"开始转换：{input_path.name} → {out_file.name}")
-                process_file(input_path, out_file, self.converter, direction)
-                self.root.after(0, lambda: self._log(f"完成：{out_file}"))
+                self._convert_single_file(input_path, output_dir, direction)
             elif input_path.is_dir():
-                txt_files = sorted(input_path.glob("*.txt"))
-                if not txt_files:
-                    self.root.after(
-                        0, lambda: self._log("输入文件夹中没有 .txt 文件")
-                    )
-                    return
-                for txt_file in txt_files:
-                    if self._cancel_event.is_set():
-                        self.root.after(0, lambda: self._log("已取消转换"))
-                        break
-                    out_file = output_dir / self._make_output_name(txt_file, direction)
-                    self.root.after(
-                        0,
-                        lambda f=txt_file, o=out_file: self._log(
-                            f"开始转换：{f.name} → {o.name}"
-                        ),
-                    )
-                    process_file(txt_file, out_file, self.converter, direction)
-                    self.root.after(
-                        0, lambda o=out_file: self._log(f"完成：{o}")
-                    )
+                self._convert_folder(input_path, output_dir, direction)
             else:
                 self.root.after(
                     0, lambda: messagebox.showerror("错误", "输入路径无效")
@@ -353,6 +330,90 @@ class ConverterApp:
             self.root.after(0, lambda: self.convert_btn.configure(state="normal"))
             self.root.after(0, lambda: self.cancel_btn.configure(state="disabled"))
             self._worker_thread = None
+
+    def _convert_single_file(self, input_path, output_dir, direction):
+        """根据文件扩展名路由到对应转换器"""
+        ext = input_path.suffix.lower()
+        log = self._log
+
+        if ext == '.txt':
+            from text_converter import convert_txt_file
+            result = convert_txt_file(
+                str(input_path), str(output_dir), direction, self.converter,
+                log_callback=log, is_cancelled_callback=self._cancel_event.is_set,
+            )
+        elif ext in ('.srt',):
+            from text_converter import convert_srt_file
+            result = convert_srt_file(
+                str(input_path), str(output_dir), direction, self.converter,
+                log_callback=log, is_cancelled_callback=self._cancel_event.is_set,
+            )
+        elif ext in ('.ass', '.ssa'):
+            from text_converter import convert_ass_file
+            result = convert_ass_file(
+                str(input_path), str(output_dir), direction, self.converter,
+                log_callback=log, is_cancelled_callback=self._cancel_event.is_set,
+            )
+        elif ext == '.lrc':
+            from text_converter import convert_lrc_file
+            result = convert_lrc_file(
+                str(input_path), str(output_dir), direction, self.converter,
+                log_callback=log, is_cancelled_callback=self._cancel_event.is_set,
+            )
+        elif ext == '.doc':
+            from doc_converter import convert_doc_to_docx
+            docx_path = convert_doc_to_docx(
+                str(input_path), str(output_dir),
+                log_callback=log, is_cancelled_callback=self._cancel_event.is_set,
+            )
+            if docx_path:
+                from doc_converter import convert_docx_file
+                result = convert_docx_file(
+                    docx_path, str(output_dir), direction, self.converter,
+                    log_callback=log, is_cancelled_callback=self._cancel_event.is_set,
+                )
+            else:
+                result = False
+        elif ext == '.docx':
+            from doc_converter import convert_docx_file
+            result = convert_docx_file(
+                str(input_path), str(output_dir), direction, self.converter,
+                log_callback=log, is_cancelled_callback=self._cancel_event.is_set,
+            )
+        elif ext == '.epub':
+            from epub_converter import convert_epub_file
+            result = convert_epub_file(
+                str(input_path), str(output_dir), direction, self.converter,
+                log_callback=log, is_cancelled_callback=self._cancel_event.is_set,
+            )
+        else:
+            # 未知格式，回退到纯文本转换
+            from text_converter import convert_txt_file
+            result = convert_txt_file(
+                str(input_path), str(output_dir), direction, self.converter,
+                log_callback=log, is_cancelled_callback=self._cancel_event.is_set,
+            )
+        self.root.after(0, lambda r=result: self._log(f"完成：{r}" if r else "转换失败"))
+
+    def _convert_folder(self, input_path, output_dir, direction):
+        """批量转换文件夹中所有支持的文件"""
+        supported = ('*.txt', '*.srt', '*.ass', '*.ssa', '*.lrc',
+                     '*.doc', '*.docx', '*.epub')
+        files = []
+        for pattern in supported:
+            files.extend(input_path.glob(pattern))
+        files = sorted(files, key=lambda p: p.name)
+
+        if not files:
+            self.root.after(0, lambda: self._log("输入文件夹中没有支持的文件"))
+            return
+
+        self.root.after(0, lambda: self._log(f"共发现 {len(files)} 个文件"))
+        for f in files:
+            if self._cancel_event.is_set():
+                self.root.after(0, lambda: self._log("已取消转换"))
+                break
+            self._convert_single_file(f, output_dir, direction)
 
     def _update_cache_info(self):
         count = self._count_cache_entries()

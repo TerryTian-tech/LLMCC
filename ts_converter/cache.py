@@ -54,10 +54,10 @@ class TranslationCache:
             data_copy = json.loads(
                 json.dumps(self._data, ensure_ascii=False)
             )
-        self.path.parent.mkdir(parents=True, exist_ok=True)
-        self.path.write_text(
-            json.dumps(data_copy, ensure_ascii=False, indent=2), encoding="utf-8"
-        )
+            self.path.parent.mkdir(parents=True, exist_ok=True)
+            self.path.write_text(
+                json.dumps(data_copy, ensure_ascii=False, indent=2), encoding="utf-8"
+            )
 
     def entry_count(self) -> int:
         """返回缓存总条数。"""
