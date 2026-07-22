@@ -35,6 +35,10 @@ class ConverterApp:
         self.root.title("AI繁简转换工具-V0.2")
         self.root.geometry("680x750")
 
+        icon_path = Path(__file__).resolve().parent.parent / "logo.ico"
+        if icon_path.exists():
+            self.root.iconbitmap(default=str(icon_path))
+
         self._cancel_event = threading.Event()
         self._worker_thread = None
 
