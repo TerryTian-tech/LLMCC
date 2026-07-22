@@ -32,18 +32,3 @@ def split_text_into_chunks(text: str, max_chunk_size: int = 10000) -> list[str]:
     if current:
         chunks.append("\n".join(current))
     return chunks
-
-
-def process_file(
-    input_path: Path, output_path: Path, converter, direction: str
-) -> None:
-    """转换单个文件，对大文件（>10MB）自动分块处理。"""
-    text = input_path.read_text(encoding="utf-8-sig")
-    if len(text) > 10 * 1024 * 1024:
-        chunks = split_text_into_chunks(text)
-        results = [converter.convert(chunk, direction) for chunk in chunks]
-        result = "\n".join(results)
-    else:
-        result = converter.convert(text, direction)
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-    output_path.write_text(result, encoding="utf-8")
