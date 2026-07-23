@@ -284,7 +284,7 @@ class ConverterApp:
             parent,
             text=(
                 "AI繁简转换工具-V0.2.1\n\n"
-                "支持简——繁、繁——简的中文文本转换。\n"
+                "支持简—繁、繁—简的中文文本转换。\n"
                 "对一对多歧义字调用大模型 API 根据上下文语义判断。\n\n"
                 "支持文件格式：TXT / SRT / ASS / LRC / DOC / DOCX / EPUB\n\n"
                 "开源仓库主页：https://github.com/TerryTian-tech/LLMCC\n"
