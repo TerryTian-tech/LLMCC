@@ -18,26 +18,36 @@ logging.getLogger('ebooklib').setLevel(logging.WARNING)
 
 def _convert_dom_text(soup: BeautifulSoup, converter: Converter, direction: str) -> None:
     """
-    递归遍历 BeautifulSoup DOM 树，替换所有纯文本节点。
+    批量转换 DOM 文本节点：收集所有文本 → 用 \\0 连接 → 一次 convert → 拆分写回。
 
-    规则：
-    - 跳过 <script> / <style> 内部的文本
+    - 跳过 <script> / <style> / <svg> / <math> 内的文本
     - 不处理纯空白节点（保留原空白）
-    - 只处理非空文本节点
     """
-    # 黑名单标签 —— 其内部文本不参与转换
     SKIP_TAGS = {'script', 'style', 'svg', 'math'}
+
+    # 收集所有需要转换的文本节点
+    nodes: list = []          # NavigableString 对象
+    texts: list[str] = []    # 对应文本内容
 
     for element in soup.find_all(True):
         if element.name in SKIP_TAGS:
             continue
         for child in list(element.children):
             if isinstance(child, NavigableString) and child.strip():
-                # 注意：不能直接 child.replace_with(cc.convert(child))，
-                # 因为 child 的类型可能是 NavigableString 的子类 CData 等，
-                # 统一转为普通字符串处理
-                converted = converter.convert(str(child), direction)
-                child.replace_with(NavigableString(converted))
+                nodes.append(child)
+                texts.append(str(child))
+
+    if not texts:
+        return
+
+    # 用 \\0 连接，一次转换
+    big_text = '\0'.join(texts)
+    converted_big = converter.convert(big_text, direction)
+    converted_texts = converted_big.split('\0')
+
+    # 写回各节点
+    for node, conv in zip(nodes, converted_texts):
+        node.replace_with(NavigableString(conv))
 
 
 def _detect_encoding_from_bytes(raw_data: bytes, log_callback=None):

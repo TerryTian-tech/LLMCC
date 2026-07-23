@@ -3,6 +3,7 @@
 默认配置文件位于用户主目录的 .ts_converter_config.json。
 """
 import json
+import os
 from dataclasses import dataclass, asdict
 from pathlib import Path
 
@@ -12,7 +13,7 @@ class Config:
     api_base_url: str = "https://api.openai.com/v1"
     api_model: str = "gpt-4o-mini"
     api_key: str = ""
-    context_window: int = 10
+    context_window: int = 30
     batch_size: int = 8
     save_api_key: bool = False
     retry_count: int = 3
@@ -78,3 +79,7 @@ def save_config(config: Config, path: Path) -> None:
     if not config.save_api_key:
         data["api_key"] = ""
     path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+    try:
+        os.chmod(path, 0o600)  # 限制为仅文件所有者可读写
+    except OSError:
+        pass  # Windows 上可能不可用，忽略
