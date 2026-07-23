@@ -1,15 +1,32 @@
-"""tkinter 图形界面。"""
+"""tkinter 图形界面 — 左右布局 + 选项卡。"""
+import ctypes
 import logging
+import os
 import threading
 import tkinter as tk
 from pathlib import Path
-from tkinter import filedialog, messagebox, scrolledtext, ttk
+from tkinter import filedialog, messagebox, ttk
+import warnings
+
+# Windows 高 DPI 感知（解决字体发虚）
+try:
+    ctypes.windll.shcore.SetProcessDpiAwareness(2)  # PerMonitorV2
+except Exception:
+    try:
+        ctypes.windll.user32.SetProcessDPIAware()
+    except Exception:
+        pass
+
+import sv_ttk
 
 from ts_converter.ai_client import AIClient
 from ts_converter.cache import TranslationCache
 from ts_converter.config import load_config, save_config
 from ts_converter.converter import Converter
 from ts_converter.mapping import load_mappings
+
+# 抑制第三方库的弃用警告
+warnings.filterwarnings("ignore", message=".*pkg_resources is deprecated.*")
 
 DEFAULT_CONFIG_PATH = Path.home() / ".ts_converter_config.json"
 DEFAULT_CACHE_PATH = Path.home() / ".ts_converter_cache.json"
@@ -32,9 +49,18 @@ class _GuiLogHandler(logging.Handler):
 class ConverterApp:
     def __init__(self, root: tk.Tk):
         self.root = root
-        self.root.title("AI繁简转换工具-V0.2")
-        self.root.geometry("680x750")
+        self.root.title("AI繁简转换工具-V0.2.1")
+        self.root.geometry("960x680")
 
+        # 窗口居中
+        self.root.update_idletasks()
+        sw = self.root.winfo_screenwidth()
+        sh = self.root.winfo_screenheight()
+        x = (sw - 960) // 2
+        y = (sh - 680) // 2
+        self.root.geometry(f"+{x}+{y}")
+
+        # 图标
         icon_path = Path(__file__).resolve().parent.parent / "logo.ico"
         if icon_path.exists():
             self.root.iconbitmap(default=str(icon_path))
@@ -51,10 +77,9 @@ class ConverterApp:
             self.root.destroy()
             return
         self.ai_client = AIClient(self.config)
-        self.converter = Converter(
-            self.mappings, self.ai_client, self.cache, self.config,
-            quality_mode=True,
-        )
+
+        # sv_ttk 主题
+        sv_ttk.set_theme("light")
 
         self._build_ui()
 
@@ -68,146 +93,206 @@ class ConverterApp:
     # ── UI 构建 ──────────────────────────────────────────
 
     def _build_ui(self):
-        padx = 10
-        pady = 5
+        pad = 10
 
-        # ── 输入 ──
-        frame_in = tk.LabelFrame(self.root, text="输入", padx=padx, pady=pady)
-        frame_in.pack(fill="x", padx=padx, pady=pady)
+        # ── 主体：左标签栏 + 右内容区 ──
+        body = ttk.Frame(self.root)
+        body.pack(fill="both", expand=True, padx=pad, pady=pad)
 
-        tk.Label(frame_in, text="文件/文件夹：").grid(row=0, column=0, sticky="w")
+        # 左侧标签栏
+        tab_bar = ttk.Frame(body, width=110)
+        tab_bar.pack(side="left", fill="y")
+        tab_bar.pack_propagate(False)
+
+        inner_bar = ttk.Frame(tab_bar)
+        inner_bar.pack(fill="y", padx=4, pady=4)
+
+        self._tab_var = tk.StringVar(value="文件转换")
+        self._tab_frames: list[ttk.Frame] = []
+
+        for label in ["文件转换", "设置", "关于"]:
+            btn = ttk.Radiobutton(
+                inner_bar, text=label, variable=self._tab_var, value=label,
+                command=lambda l=label: self._switch_tab(l),
+            )
+            btn.pack(fill="x", pady=2, ipady=4)
+
+        # 右侧内容区
+        self._content_area = ttk.Frame(body)
+        self._content_area.pack(side="left", fill="both", expand=True, padx=(pad, 0))
+
+        f1 = ttk.Frame(self._content_area)
+        f2 = ttk.Frame(self._content_area)
+        f3 = ttk.Frame(self._content_area)
+        self._tab_frames = [f1, f2, f3]
+
+        self._build_page_convert(f1)
+        self._build_page_settings(f2)
+        self._build_page_about(f3)
+
+        self._switch_tab("文件转换")
+
+    def _switch_tab(self, label: str):
+        idx = {"文件转换": 0, "设置": 1, "关于": 2}[label]
+        for f in self._tab_frames:
+            f.pack_forget()
+        self._tab_frames[idx].pack(fill="both", expand=True)
+
+    def _build_page_convert(self, parent):
+        pad = 5
+
+        # 按钮 + 进度条
+        bar = ttk.Frame(parent)
+        bar.pack(fill="x", pady=(0, pad))
+
+        self.convert_btn = ttk.Button(
+            bar, text="开始转换", command=self._start_convert
+        )
+        self.convert_btn.pack(side="left", padx=(0, 5))
+        self.cancel_btn = ttk.Button(
+            bar, text="取消转换", command=self._cancel_convert, state="disabled"
+        )
+        self.cancel_btn.pack(side="left", padx=(0, 10))
+        self.progress = ttk.Progressbar(bar, mode="indeterminate")
+        self.progress.pack(side="left", fill="x", expand=True)
+
+        frm = ttk.LabelFrame(parent, text="输入", padding=pad)
+        frm.pack(fill="x", pady=(0, pad))
+
         self.input_var = tk.StringVar()
-        tk.Entry(frame_in, textvariable=self.input_var, width=45).grid(
-            row=0, column=1, sticky="we"
+        ttk.Entry(frm, textvariable=self.input_var).pack(
+            side="left", fill="x", expand=True, padx=(0, pad)
         )
-        tk.Button(frame_in, text="选择文件", command=self._browse_input_file).grid(
-            row=0, column=2, padx=2
+        ttk.Button(frm, text="选择文件", command=self._browse_input_file).pack(
+            side="left", padx=2
         )
-        tk.Button(frame_in, text="选择文件夹", command=self._browse_input_dir).grid(
-            row=0, column=3, padx=2
+        ttk.Button(frm, text="选择文件夹", command=self._browse_input_dir).pack(
+            side="left"
         )
-        frame_in.columnconfigure(1, weight=1)
 
-        # ── 输出 ──
-        frame_out = tk.LabelFrame(self.root, text="输出文件夹", padx=padx, pady=pady)
-        frame_out.pack(fill="x", padx=padx, pady=pady)
+        frm = ttk.LabelFrame(parent, text="输出文件夹", padding=pad)
+        frm.pack(fill="x", pady=(0, pad))
 
-        tk.Label(frame_out, text="文件夹：").grid(row=0, column=0, sticky="w")
         self.output_var = tk.StringVar()
-        tk.Entry(frame_out, textvariable=self.output_var, width=45).grid(
-            row=0, column=1, sticky="we"
+        ttk.Entry(frm, textvariable=self.output_var).pack(
+            side="left", fill="x", expand=True, padx=(0, pad)
         )
-        tk.Button(frame_out, text="选择文件夹", command=self._browse_output_dir).grid(
-            row=0, column=2, padx=2
+        ttk.Button(frm, text="选择文件夹", command=self._browse_output_dir).pack(
+            side="left"
         )
-        tk.Label(
-            frame_out,
-            text="输出文件名由转换器自动生成（如 convert_xxx.txt）",
-            fg="gray",
-        ).grid(row=1, column=1, sticky="w", pady=(0, 2))
-        frame_out.columnconfigure(1, weight=1)
 
-        # ── 转换方向 ──
-        frame_dir = tk.LabelFrame(self.root, text="转换方向", padx=padx, pady=pady)
-        frame_dir.pack(fill="x", padx=padx, pady=pady)
+        frm = ttk.LabelFrame(parent, text="转换方向", padding=pad)
+        frm.pack(fill="x", pady=(0, pad))
+
         self.direction_var = tk.StringVar(value="s2t")
-        tk.Radiobutton(
-            frame_dir, text="简 → 繁", variable=self.direction_var, value="s2t"
-        ).pack(side="left")
-        tk.Radiobutton(
-            frame_dir, text="繁 → 简", variable=self.direction_var, value="t2s"
+        ttk.Radiobutton(
+            frm, text="简 → 繁", variable=self.direction_var, value="s2t"
+        ).pack(side="left", padx=(0, 20))
+        ttk.Radiobutton(
+            frm, text="繁 → 简", variable=self.direction_var, value="t2s"
         ).pack(side="left")
 
-        # ── 转换模式 ──
-        frame_mode = tk.LabelFrame(self.root, text="转换模式", padx=padx, pady=pady)
-        frame_mode.pack(fill="x", padx=padx, pady=pady)
+        ttk.Label(
+            parent,
+            text="输出文件名由转换器自动生成（如 convert_xxx.txt）",
+            foreground="gray",
+        ).pack(anchor="w", pady=(0, pad))
+
+        # 日志
+        log_frame = ttk.LabelFrame(parent, text="日志", padding=5)
+        log_frame.pack(fill="both", expand=True)
+
+        self.log_box = tk.Text(
+            log_frame, state="disabled", wrap="word",
+            font=("Consolas", 9),
+        )
+        log_scroll = ttk.Scrollbar(log_frame, command=self.log_box.yview)
+        self.log_box.configure(yscrollcommand=log_scroll.set)
+        self.log_box.pack(side="left", fill="both", expand=True)
+        log_scroll.pack(side="right", fill="y")
+
+    def _build_page_settings(self, parent):
+        pad = 5
+
+        # 主题
+        frm = ttk.LabelFrame(parent, text="主题", padding=pad)
+        frm.pack(fill="x", pady=(0, pad))
+
+        self.theme_var = tk.StringVar(value="light")
+        ttk.Radiobutton(
+            frm, text="浅色", variable=self.theme_var, value="light",
+            command=lambda: sv_ttk.set_theme("light"),
+        ).pack(side="left", padx=(0, 20))
+        ttk.Radiobutton(
+            frm, text="暗色", variable=self.theme_var, value="dark",
+            command=lambda: sv_ttk.set_theme("dark"),
+        ).pack(side="left")
+
+        # 转换模式
+        frm = ttk.LabelFrame(parent, text="转换模式", padding=pad)
+        frm.pack(fill="x", pady=(0, pad))
+
         self.quality_var = tk.BooleanVar(value=True)
-        tk.Radiobutton(
-            frame_mode, text="质量优先（解析不完整时自动重试，较慢但更准）",
+        ttk.Radiobutton(
+            frm, text="质量优先（不完整时重试）",
             variable=self.quality_var, value=True,
         ).pack(anchor="w")
-        tk.Radiobutton(
-            frame_mode, text="速度优先（解析不完整时直接跳过，较快）",
+        ttk.Radiobutton(
+            frm, text="速度优先（不完整时跳过）",
             variable=self.quality_var, value=False,
         ).pack(anchor="w")
 
-        # ── API 配置 ──
-        frame_api = tk.LabelFrame(self.root, text="API 配置", padx=padx, pady=pady)
-        frame_api.pack(fill="x", padx=padx, pady=pady)
+        frm = ttk.LabelFrame(parent, text="API 配置", padding=pad)
+        frm.pack(fill="x", pady=(0, pad))
 
-        tk.Label(frame_api, text="Base URL：").grid(row=0, column=0, sticky="w")
         self.base_url_var = tk.StringVar(value=self.config.api_base_url)
-        tk.Entry(frame_api, textvariable=self.base_url_var, width=45).grid(
-            row=0, column=1, sticky="we"
-        )
-
-        tk.Label(frame_api, text="模型：").grid(row=1, column=0, sticky="w")
         self.model_var = tk.StringVar(value=self.config.api_model)
-        tk.Entry(frame_api, textvariable=self.model_var, width=45).grid(
-            row=1, column=1, sticky="we"
-        )
-
-        tk.Label(frame_api, text="API Key：").grid(row=2, column=0, sticky="w")
         self.key_var = tk.StringVar(
             value=self.config.api_key if self.config.save_api_key else ""
         )
-        tk.Entry(frame_api, textvariable=self.key_var, width=45, show="*").grid(
-            row=2, column=1, sticky="we"
-        )
-
-        self.save_key_var = tk.BooleanVar(value=self.config.save_api_key)
-        tk.Checkbutton(
-            frame_api,
-            text="记住 API Key（明文保存，存在安全风险）",
-            variable=self.save_key_var,
-        ).grid(row=3, column=1, sticky="w")
-
-        tk.Label(frame_api, text="上下文窗口：").grid(row=4, column=0, sticky="w")
         self.ctx_window_var = tk.StringVar(value=str(self.config.context_window))
-        tk.Spinbox(
-            frame_api,
-            textvariable=self.ctx_window_var,
-            from_=5, to=200, increment=5, width=6,
-        ).grid(row=4, column=1, sticky="w")
+        self.save_key_var = tk.BooleanVar(value=self.config.save_api_key)
 
-        frame_api.columnconfigure(1, weight=1)
+        rows = [
+            ("Base URL：", self.base_url_var, None),
+            ("模型：", self.model_var, None),
+            ("API Key：", self.key_var, "*"),
+            ("上下文窗口：", self.ctx_window_var, None),
+        ]
+        for i, (label, var, show) in enumerate(rows):
+            ttk.Label(frm, text=label).grid(row=i, column=0, sticky="w", pady=2)
+            entry = ttk.Entry(frm, textvariable=var)
+            if show:
+                entry.configure(show=show)
+            entry.grid(row=i, column=1, sticky="we", padx=(pad, 0), pady=2)
+        frm.columnconfigure(1, weight=1)
 
-        # ── 缓存信息 ──
-        frame_cache = tk.LabelFrame(self.root, text="缓存", padx=padx, pady=pady)
-        frame_cache.pack(fill="x", padx=padx, pady=pady)
+        ttk.Checkbutton(
+            frm, text="记住 API Key（明文保存）",
+            variable=self.save_key_var,
+        ).grid(row=len(rows), column=1, sticky="w", pady=(pad, 0))
+
+        frm = ttk.LabelFrame(parent, text="缓存", padding=pad)
+        frm.pack(fill="x", pady=(0, pad))
 
         self.cache_info_var = tk.StringVar(value="加载中…")
-        tk.Label(frame_cache, textvariable=self.cache_info_var).pack(
-            side="left", padx=padx
+        ttk.Label(frm, textvariable=self.cache_info_var).pack(side="left")
+        ttk.Button(frm, text="清空缓存", command=self._clear_cache).pack(side="right")
+
+    def _build_page_about(self, parent):
+        info = ttk.Label(
+            parent,
+            text=(
+                "AI繁简转换工具-V0.2.1\n\n"
+                "支持简——繁、繁——简的中文文本转换。\n"
+                "对一对多歧义字调用大模型 API 根据上下文语义判断。\n\n"
+                "支持文件格式：TXT / SRT / ASS / LRC / DOC / DOCX / EPUB\n\n"
+                "开源仓库主页：https://github.com/TerryTian-tech/LLMCC\n"
+            ),
+            justify="center",
+            anchor="center",
         )
-        tk.Button(
-            frame_cache, text="清空缓存", command=self._clear_cache
-        ).pack(side="right", padx=padx)
-
-        # ── 执行按钮 ──
-        frame_action = tk.Frame(self.root)
-        frame_action.pack(fill="x", padx=padx, pady=pady)
-
-        self.convert_btn = tk.Button(
-            frame_action, text="开始转换", command=self._start_convert
-        )
-        self.convert_btn.pack(side="left", padx=5)
-
-        self.cancel_btn = tk.Button(
-            frame_action, text="取消转换", command=self._cancel_convert, state="disabled"
-        )
-        self.cancel_btn.pack(side="left", padx=5)
-
-        self.progress = ttk.Progressbar(frame_action, mode="indeterminate")
-        self.progress.pack(side="left", fill="x", expand=True, padx=5)
-
-        # ── 日志 ──
-        frame_log = tk.LabelFrame(self.root, text="日志", padx=padx, pady=pady)
-        frame_log.pack(fill="both", expand=True, padx=padx, pady=pady)
-        self.log_box = scrolledtext.ScrolledText(
-            frame_log, state="disabled", height=8
-        )
-        self.log_box.pack(fill="both", expand=True)
+        info.pack(fill="both", expand=True, padx=10, pady=10)
 
     # ── 日志 ──────────────────────────────────────────────
 
@@ -246,8 +331,10 @@ class ConverterApp:
     # ── 缓存管理 ──────────────────────────────────────────
 
     def _count_cache_entries(self) -> int:
-        """统计缓存总条数。"""
         return self.cache.entry_count()
+
+    def _update_cache_info(self):
+        self.cache_info_var.set(f"本地缓存：{self._count_cache_entries()} 条")
 
     def _clear_cache(self):
         if not messagebox.askyesno("确认", "确定要清空所有本地缓存吗？"):
@@ -313,9 +400,7 @@ class ConverterApp:
         self._cancel_event.set()
         self._log("正在取消…")
 
-    def _convert_worker(
-        self, input_path: Path, output_dir: Path, direction: str
-    ):
+    def _convert_worker(self, input_path, output_dir, direction):
         try:
             if input_path.is_file():
                 self._convert_single_file(input_path, output_dir, direction)
@@ -326,7 +411,8 @@ class ConverterApp:
                     0, lambda: messagebox.showerror("错误", "输入路径无效")
                 )
         except Exception as e:
-            self.root.after(0, lambda: messagebox.showerror("错误", str(e)))
+            err = str(e)
+            self.root.after(0, lambda msg=err: messagebox.showerror("错误", msg))
         finally:
             self.cache.save()
             self.root.after(0, self._update_cache_info)
@@ -336,7 +422,6 @@ class ConverterApp:
             self._worker_thread = None
 
     def _convert_single_file(self, input_path, output_dir, direction):
-        """根据文件扩展名路由到对应转换器"""
         ext = input_path.suffix.lower()
         log = self._log
 
@@ -376,6 +461,10 @@ class ConverterApp:
                     docx_path, str(output_dir), direction, self.converter,
                     log_callback=log, is_cancelled_callback=self._cancel_event.is_set,
                 )
+                try:
+                    os.remove(docx_path)  # 清理 DOC→DOCX 中间文件
+                except OSError:
+                    pass
             else:
                 result = False
         elif ext == '.docx':
@@ -391,7 +480,6 @@ class ConverterApp:
                 log_callback=log, is_cancelled_callback=self._cancel_event.is_set,
             )
         else:
-            # 未知格式，回退到纯文本转换
             from text_converter import convert_txt_file
             result = convert_txt_file(
                 str(input_path), str(output_dir), direction, self.converter,
@@ -400,7 +488,6 @@ class ConverterApp:
         self.root.after(0, lambda r=result: self._log(f"完成：{r}" if r else "转换失败"))
 
     def _convert_folder(self, input_path, output_dir, direction):
-        """批量转换文件夹中所有支持的文件"""
         supported = ('*.txt', '*.srt', '*.ass', '*.ssa', '*.lrc',
                      '*.doc', '*.docx', '*.epub')
         files = []
@@ -418,10 +505,6 @@ class ConverterApp:
                 self.root.after(0, lambda: self._log("已取消转换"))
                 break
             self._convert_single_file(f, output_dir, direction)
-
-    def _update_cache_info(self):
-        count = self._count_cache_entries()
-        self.cache_info_var.set(f"本地缓存：{count} 条")
 
     # ── 主循环 ────────────────────────────────────────────
 

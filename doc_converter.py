@@ -273,6 +273,8 @@ class DocxTraditionalSimplifiedConverter:
 
             # 检查是否已取消
             if self.is_cancelled_callback and self.is_cancelled_callback():
+                if temp_output and os.path.exists(temp_output):
+                    os.remove(temp_output)
                 return None
 
             if footnote_success:
@@ -354,6 +356,9 @@ class DocxTraditionalSimplifiedConverter:
 
         except Exception as e:
             self.log(f"处理文档时出错: {e}")
+            if temp_output and os.path.exists(temp_output):
+                os.remove(temp_output)
+            return None
 
     def _convert_paragraphs(self, paragraphs):
         """转换段落集合"""
@@ -612,11 +617,13 @@ def convert_docx_file(input_path, output_folder, direction, converter,
                 return False
 
             # 使用新的转换器类
-            converter = DocxTraditionalSimplifiedConverter(converter, direction,
-                                                         log_callback, is_cancelled_callback,
-                                                         preserve_format, convert_footnotes)
+            docx_converter = DocxTraditionalSimplifiedConverter(
+                converter, direction,
+                log_callback, is_cancelled_callback,
+                preserve_format, convert_footnotes,
+            )
             output_path = os.path.join(output_folder, f"convert_{os.path.basename(input_path)}")
-            result = converter.convert_document(input_path, output_path)
+            result = docx_converter.convert_document(input_path, output_path)
 
             if result:
                 log(f"已保存: {result}")

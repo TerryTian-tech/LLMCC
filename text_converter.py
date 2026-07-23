@@ -135,12 +135,8 @@ def safe_read_file(file_path, encoding, log_callback=None):
 
 # ── SRT 字幕 ──────────────────────────────────────────
 
-def _collect_srt_texts(content: str) -> tuple[list[str], list[str], list[list[str | tuple]]]:
-    """解析 SRT，收集所有字幕文本行，返回 (header_lines, text_lines, text_blocks)。
-
-    text_blocks: [[line1, line2], [line3], ...]  每个字幕块的文本行
-    header_lines 和 text_lines 用于重建：依次取 header / text_block / empty
-    """
+def _collect_srt_texts(content: str) -> tuple[list[list[str]], list]:
+    """解析 SRT，收集所有字幕文本行，返回 (text_blocks, block_templates)。"""
     lines = content.split('\n')
     header_lines: list[str] = []      # 序号+时间码行
     text_blocks: list[list[str]] = []  # 每个字幕块的文本行集合
@@ -226,36 +222,24 @@ def convert_srt_file(input_path, output_folder, direction, converter,
         text_blocks, block_templates = _collect_srt_texts(content)
 
         if text_blocks:
-            # 收集所有纯文本（去除 ASS 标签），用 \0 连接，一次转换
-            all_plain: list[str] = []
-            tag_maps: list[list[str | None]] = []  # 每个 block 每行的标签结构
+            # 收集所有纯文本（去除 ASS 标签）
+            # \0 分隔同行的标签段，\1 分隔不同行
+            line_texts: list[str] = []
+            tag_maps: list[list[str | None]] = []
 
             for block in text_blocks:
-                block_plain: list[str] = []
                 for line in block:
                     plain_parts, tag_parts = _split_tags(line)
-                    block_plain.append('\0'.join(plain_parts))
+                    line_texts.append('\0'.join(plain_parts))
                     tag_maps.append(tag_parts)
-                all_plain.append('\0'.join(block_plain))
 
-            big_text = '\0'.join(all_plain)
+            big_text = '\1'.join(line_texts)
             converted_big = converter.convert(big_text, direction)
-
-            # 拆分回每个 block 的每行
-            converted_blocks = converted_big.split('\0')
-            flat_plain: list[str] = []
-            idx = 0
-            for block in text_blocks:
-                for _ in block:
-                    flat_plain.append(converted_blocks[idx] if idx < len(converted_blocks) else '')
-                    idx += 1
+            converted_lines = converted_big.split('\1')
 
             # 重建每行（合并回标签）
-            flat_idx = 0
-            for bi, block in enumerate(text_blocks):
-                for li in range(len(block)):
-                    text_blocks[bi][li] = _rejoin_tags(flat_plain[flat_idx], tag_maps[flat_idx])
-                    flat_idx += 1
+            for i, (block, li) in enumerate(((bi, li) for bi, block in enumerate(text_blocks) for li in range(len(block)))):
+                text_blocks[block][li] = _rejoin_tags(converted_lines[i], tag_maps[i])
 
         result_lines = _reassemble_srt(text_blocks, block_templates)
 
@@ -362,9 +346,9 @@ def convert_ass_file(input_path, output_folder, direction, converter,
                     line_templates.append(tag_parts)
 
         if text_entries:
-            big_text = '\0'.join(text_entries)
+            big_text = '\1'.join(text_entries)
             converted_big = converter.convert(big_text, direction)
-            converted_entries = converted_big.split('\0')
+            converted_entries = converted_big.split('\1')
 
             for j, line_idx in enumerate(text_indices):
                 parts = lines[line_idx].split(',', 9)
@@ -445,9 +429,9 @@ def convert_lrc_file(input_path, output_folder, direction, converter,
                     lyric_indices.append((i, tag_parts))
 
         if all_plain:
-            big_text = '\0'.join(all_plain)
+            big_text = '\1'.join(all_plain)
             converted_big = converter.convert(big_text, direction)
-            converted_parts = converted_big.split('\0')
+            converted_parts = converted_big.split('\1')
 
             # ID 标签
             for j, idx in enumerate(id_indices):
