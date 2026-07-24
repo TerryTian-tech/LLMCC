@@ -49,7 +49,7 @@ class _GuiLogHandler(logging.Handler):
 class ConverterApp:
     def __init__(self, root: tk.Tk):
         self.root = root
-        self.root.title("AI繁简转换工具-V0.2.1")
+        self.root.title("AI繁简转换工具-V0.2.2")
         self.root.geometry("960x680")
 
         # 窗口居中
@@ -79,7 +79,7 @@ class ConverterApp:
         self.ai_client = AIClient(self.config)
 
         # sv_ttk 主题
-        sv_ttk.set_theme("light")
+        sv_ttk.set_theme(self.config.theme)
 
         self._build_ui()
 
@@ -218,28 +218,30 @@ class ConverterApp:
         frm = ttk.LabelFrame(parent, text="主题", padding=pad)
         frm.pack(fill="x", pady=(0, pad))
 
-        self.theme_var = tk.StringVar(value="light")
+        self.theme_var = tk.StringVar(value=self.config.theme)
         ttk.Radiobutton(
             frm, text="浅色", variable=self.theme_var, value="light",
-            command=lambda: sv_ttk.set_theme("light"),
+            command=lambda: [sv_ttk.set_theme("light"), self._save_config()],
         ).pack(side="left", padx=(0, 20))
         ttk.Radiobutton(
             frm, text="暗色", variable=self.theme_var, value="dark",
-            command=lambda: sv_ttk.set_theme("dark"),
+            command=lambda: [sv_ttk.set_theme("dark"), self._save_config()],
         ).pack(side="left")
 
         # 转换模式
         frm = ttk.LabelFrame(parent, text="转换模式", padding=pad)
         frm.pack(fill="x", pady=(0, pad))
 
-        self.quality_var = tk.BooleanVar(value=True)
+        self.quality_var = tk.BooleanVar(value=self.config.quality_mode)
         ttk.Radiobutton(
             frm, text="质量优先（不完整时重试）",
             variable=self.quality_var, value=True,
+            command=self._save_config,
         ).pack(anchor="w")
         ttk.Radiobutton(
             frm, text="速度优先（不完整时跳过）",
             variable=self.quality_var, value=False,
+            command=self._save_config,
         ).pack(anchor="w")
 
         frm = ttk.LabelFrame(parent, text="API 配置", padding=pad)
@@ -283,11 +285,12 @@ class ConverterApp:
         info = ttk.Label(
             parent,
             text=(
-                "AI繁简转换工具-V0.2.1\n\n"
-                "支持简—繁、繁—简的中文文本转换。\n"
+                "AI繁简转换工具-V0.2.2\n\n"
+                "支持简→繁、繁→简的中文文本转换。\n"
                 "对一对多歧义字调用大模型 API 根据上下文语义判断。\n\n"
-                "支持文件格式：TXT / SRT / ASS / LRC / DOC / DOCX / EPUB\n\n"
-                "开源仓库主页：https://github.com/TerryTian-tech/LLMCC\n"
+                "支持格式：TXT / SRT / ASS / LRC / DOC / DOCX / EPUB\n\n"
+                "依赖：requests · python-docx · chardet · ebooklib\n"
+                "      beautifulsoup4 · pywin32 · sv-ttk"
             ),
             justify="center",
             anchor="center",
@@ -346,6 +349,11 @@ class ConverterApp:
 
     # ── 配置 ──────────────────────────────────────────────
 
+    def _save_config(self):
+        self.config.theme = self.theme_var.get()
+        self.config.quality_mode = self.quality_var.get()
+        save_config(self.config, DEFAULT_CONFIG_PATH)
+
     def _update_config_from_ui(self):
         self.config.api_base_url = self.base_url_var.get().strip()
         self.config.api_model = self.model_var.get().strip()
@@ -354,7 +362,7 @@ class ConverterApp:
         try:
             self.config.context_window = int(self.ctx_window_var.get())
         except ValueError:
-            self.config.context_window = 30
+            self.config.context_window = 10
         save_config(self.config, DEFAULT_CONFIG_PATH)
 
     # ── 转换 ──────────────────────────────────────────────
