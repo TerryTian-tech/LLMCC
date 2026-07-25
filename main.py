@@ -1,6 +1,6 @@
 """繁简转换工具 — GUI 入口。"""
 import tkinter as tk
-
+import certifi
 from gui.app import ConverterApp
 
 
