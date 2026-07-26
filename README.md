@@ -25,7 +25,6 @@ python main.py
 ```
 
 ## 配置
-
 首次运行 GUI 时填写 API Base URL、模型名和 API Key。配置会保存在 `.ts_converter_config.json` 中。
 AI 判断结果会缓存在 `.ts_converter_cache.json ` 中，默认为当前用户的 `users/你的用户名` 目录下。
 
@@ -39,3 +38,9 @@ AI 判断结果会缓存在 `.ts_converter_cache.json ` 中，默认为当前用
 - `TSCharacters-2.txt`：繁→简一对多（85 行）
 
 映射字表基于 [OpenCC](https://github.com/BYVoid/OpenCC) 和 [OpenCC-Traditional Chinese to Traditional Chinese (The Chinese Government Standard)](https://github.com/TerryTian-tech/OpenCC-Traditional-Chinese-characters-according-to-Chinese-government-standards) 制作，遵循《通用规范汉字表》（2013）标准。
+
+## 许可协议
+
+源于“规范繁体字形转换器”的部分（包括doc_converter、epub_converter和text_converter）：[Apache License 2.0](https://github.com/TerryTian-tech/OpenCC-Traditional-Chinese-characters-according-to-Chinese-government-standards/blob/main/LICENSE)
+
+其余部分：[Anti 996 License Version 1.0](https://github.com/TerryTian-tech/LLMCC/blob/main/LICENSE)
