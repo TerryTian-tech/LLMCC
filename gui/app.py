@@ -287,7 +287,7 @@ class ConverterApp:
 
         ttk.Label(frm, text="强制编码：").pack(side="left")
         self.encoding_var = tk.StringVar(value=self.config.force_encoding or "自动检测")
-        encodings = ["自动检测", "UTF-8", "GBK", "GB18030", "GBK", "Big5", "GB2312", "CP950", "UTF-16"]
+        encodings = ["自动检测", "UTF-8", "GB18030", "GBK", "Big5", "GB2312", "CP950", "UTF-16"]
         cb = ttk.Combobox(
             frm, textvariable=self.encoding_var, values=encodings,
             state="readonly", width=12,
