@@ -49,7 +49,7 @@ class _GuiLogHandler(logging.Handler):
 class ConverterApp:
     def __init__(self, root: tk.Tk):
         self.root = root
-        self.root.title("AI繁简转换工具-V0.2.2")
+        self.root.title("规范繁体字形转换器-AI繁简转换模块")
         self.root.geometry("960x680")
 
         # 窗口居中
@@ -107,10 +107,10 @@ class ConverterApp:
         inner_bar = ttk.Frame(tab_bar)
         inner_bar.pack(fill="y", padx=4, pady=4)
 
-        self._tab_var = tk.StringVar(value="文件转换")
+        self._tab_var = tk.StringVar(value="初始设置")
         self._tab_frames: list[ttk.Frame] = []
 
-        for label in ["文件转换", "设置", "关于"]:
+        for label in ["初始设置", "使用说明", "开始转换"]:
             btn = ttk.Radiobutton(
                 inner_bar, text=label, variable=self._tab_var, value=label,
                 command=lambda l=label: self._switch_tab(l),
@@ -126,14 +126,14 @@ class ConverterApp:
         f3 = ttk.Frame(self._content_area)
         self._tab_frames = [f1, f2, f3]
 
-        self._build_page_convert(f1)
-        self._build_page_settings(f2)
-        self._build_page_about(f3)
+        self._build_page_settings(f1)
+        self._build_page_about(f2)
+        self._build_page_convert(f3)
 
-        self._switch_tab("文件转换")
+        self._switch_tab("初始设置")
 
     def _switch_tab(self, label: str):
-        idx = {"文件转换": 0, "设置": 1, "关于": 2}[label]
+        idx = {"初始设置": 0, "使用说明": 1, "开始转换": 2}[label]
         for f in self._tab_frames:
             f.pack_forget()
         self._tab_frames[idx].pack(fill="both", expand=True)
@@ -186,10 +186,10 @@ class ConverterApp:
 
         self.direction_var = tk.StringVar(value="s2t")
         ttk.Radiobutton(
-            frm, text="简 → 繁", variable=self.direction_var, value="s2t"
+            frm, text="简体到规范繁体", variable=self.direction_var, value="s2t"
         ).pack(side="left", padx=(0, 20))
         ttk.Radiobutton(
-            frm, text="繁 → 简", variable=self.direction_var, value="t2s"
+            frm, text="繁体到简体", variable=self.direction_var, value="t2s"
         ).pack(side="left")
 
         ttk.Label(
@@ -270,7 +270,7 @@ class ConverterApp:
         frm.columnconfigure(1, weight=1)
 
         ttk.Checkbutton(
-            frm, text="记住 API Key（明文保存）",
+            frm, text="记住 API Key",
             variable=self.save_key_var,
         ).grid(row=len(rows), column=1, sticky="w", pady=(pad, 0))
 
@@ -281,20 +281,57 @@ class ConverterApp:
         ttk.Label(frm, textvariable=self.cache_info_var).pack(side="left")
         ttk.Button(frm, text="清空缓存", command=self._clear_cache).pack(side="right")
 
+        # 文本编码
+        frm = ttk.LabelFrame(parent, text="文本编码", padding=pad)
+        frm.pack(fill="x", pady=(pad, 0))
+
+        ttk.Label(frm, text="强制编码：").pack(side="left")
+        self.encoding_var = tk.StringVar(value=self.config.force_encoding or "自动检测")
+        encodings = ["自动检测", "UTF-8", "GBK", "GB18030", "GBK", "Big5", "GB2312", "CP950", "UTF-16"]
+        cb = ttk.Combobox(
+            frm, textvariable=self.encoding_var, values=encodings,
+            state="readonly", width=12,
+        )
+        cb.pack(side="left", padx=(pad, 0))
+        ttk.Label(frm, text="（仅对 txt 生效）", foreground="gray").pack(
+            side="left", padx=(pad, 0))
+
+        # Word 文档选项
+        frm = ttk.LabelFrame(parent, text="Word 文档", padding=pad)
+        frm.pack(fill="x", pady=(pad, pad))
+
+        self.preserve_fmt_var = tk.BooleanVar(value=self.config.preserve_format)
+        ttk.Checkbutton(
+            frm, text="保留格式（段落/字体/样式不丢失）",
+            variable=self.preserve_fmt_var,
+        ).pack(anchor="w")
+        self.convert_fns_var = tk.BooleanVar(value=self.config.convert_footnotes)
+        ttk.Checkbutton(
+            frm, text="转换脚注与尾注",
+            variable=self.convert_fns_var,
+        ).pack(anchor="w")
+
     def _build_page_about(self, parent):
         info = ttk.Label(
             parent,
             text=(
-                "AI繁简转换工具-V0.2.2\n\n"
-                "支持简—繁、繁—简的中文文本转换。\n"
-                "对一对多歧义字调用大模型 API 根据上下文语义判断。\n\n"
-                "支持文件格式：TXT / SRT / ASS / LRC / DOC / DOCX / EPUB\n\n"
-                "开源仓库主页：https://github.com/TerryTian-tech/LLMCC\n"
+                "规范繁体字形转换器-AI繁简转换模块\n\n"
+                "本模块系“规范繁体字形转换器”的AI转换模块，因系独立构建，亦可脱离主程序单独使用。\n\n"
+                "目前只支持繁—简、简—繁转换，对转换中出现的“一对多”情形，调用大模型 API 根据上下文语义判断。\n\n"
+                "使用前请在初始设置里填写API接口地址、模型名称、API Key，转换效果取决于模型能力，\n"
+                "但一般远高于传统转换的正确率。\n\n"
+                "虽然转换时只传输极少部分文本至AI厂商服务器，如果不希望文本被泄露，请不要使用本模块转换文件。\n"
+                "AI转换过程耗时且需向AI厂商提取支付token费用，不建议转换长文本和大文件。\n\n"
+                "模块版本：0.2.3 \n"
+                "使用前请知悉本模块单独采用Anti-996-License 1.0许可证，主程序其余功能仍遵循Apache 2.0协议许可。\n\n"
+                "本模块开源仓库地址：https://github.com/TerryTian-tech/LLMCC \n\n"
+                "规范繁体字形转换器开源仓库地址：https://github.com/TerryTian-tech/OpenCC-Traditional- \n"
+                "Chinese-characters-according-to-Chinese-government-standards \n"
             ),
-            justify="center",
-            anchor="center",
+            justify="left",
+            anchor="w",
         )
-        info.pack(fill="both", expand=True, padx=10, pady=10)
+        info.pack(fill="both", padx=10, pady=10)
 
     # ── 日志 ──────────────────────────────────────────────
 
@@ -351,6 +388,9 @@ class ConverterApp:
     def _save_config(self):
         self.config.theme = self.theme_var.get()
         self.config.quality_mode = self.quality_var.get()
+        self.config.force_encoding = self.encoding_var.get()
+        self.config.preserve_format = self.preserve_fmt_var.get()
+        self.config.convert_footnotes = self.convert_fns_var.get()
         save_config(self.config, DEFAULT_CONFIG_PATH)
 
     def _update_config_from_ui(self):
@@ -367,6 +407,8 @@ class ConverterApp:
     # ── 转换 ──────────────────────────────────────────────
 
     def _start_convert(self):
+        if self._worker_thread and self._worker_thread.is_alive():
+            return
         self._update_config_from_ui()
         self.ai_client = AIClient(self.config)
         self.converter = Converter(
@@ -429,13 +471,18 @@ class ConverterApp:
             self._worker_thread = None
 
     def _convert_single_file(self, input_path, output_dir, direction):
+        if self._cancel_event.is_set():
+            return
         ext = input_path.suffix.lower()
-        log = self._log
+        log = lambda msg: self.root.after(0, self._log, msg)  # 线程安全
+        enc = self.encoding_var.get()
+        force_enc = None if enc == "自动检测" else enc
 
         if ext == '.txt':
             from text_converter import convert_txt_file
             result = convert_txt_file(
                 str(input_path), str(output_dir), direction, self.converter,
+                force_encoding=force_enc,
                 log_callback=log, is_cancelled_callback=self._cancel_event.is_set,
             )
         elif ext in ('.srt',):
@@ -466,6 +513,8 @@ class ConverterApp:
                 from doc_converter import convert_docx_file
                 result = convert_docx_file(
                     docx_path, str(output_dir), direction, self.converter,
+                    preserve_format=self.preserve_fmt_var.get(),
+                    convert_footnotes=self.convert_fns_var.get(),
                     log_callback=log, is_cancelled_callback=self._cancel_event.is_set,
                 )
                 try:
@@ -478,6 +527,8 @@ class ConverterApp:
             from doc_converter import convert_docx_file
             result = convert_docx_file(
                 str(input_path), str(output_dir), direction, self.converter,
+                preserve_format=self.preserve_fmt_var.get(),
+                convert_footnotes=self.convert_fns_var.get(),
                 log_callback=log, is_cancelled_callback=self._cancel_event.is_set,
             )
         elif ext == '.epub':
@@ -490,6 +541,7 @@ class ConverterApp:
             from text_converter import convert_txt_file
             result = convert_txt_file(
                 str(input_path), str(output_dir), direction, self.converter,
+                force_encoding=force_enc,
                 log_callback=log, is_cancelled_callback=self._cancel_event.is_set,
             )
         self.root.after(0, lambda r=result: self._log(f"完成：{r}" if r else "转换失败"))

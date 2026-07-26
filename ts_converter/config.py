@@ -21,6 +21,9 @@ class Config:
     api_timeout: int = 60
     theme: str = "light"
     quality_mode: bool = True
+    force_encoding: str = ""
+    preserve_format: bool = True
+    convert_footnotes: bool = True
 
     def __post_init__(self):
         if self.batch_size < 1:

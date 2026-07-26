@@ -7,7 +7,6 @@ import zipfile
 import pythoncom
 
 from docx import Document
-from docx.shared import Pt, RGBColor
 
 try:
     import win32com.client as win32

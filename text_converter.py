@@ -130,7 +130,7 @@ def safe_read_file(file_path, encoding, log_callback=None):
                     return f.read()
             except Exception as e2:
                 log(f"最终读取失败: {e2}")
-                return ""
+                return None  # 返回 None 表示完全失败，调用方应中止
 
 
 # ── SRT 字幕 ──────────────────────────────────────────
@@ -158,7 +158,8 @@ def _collect_srt_texts(content: str) -> tuple[list[list[str]], list]:
                 if text_line.strip() == '':
                     i += 1
                     break
-                if text_line.strip().isdigit() and i + 1 < len(lines) and '-->' in lines[i + 1]:
+                if (not block_texts and text_line.strip().isdigit()
+                        and i + 1 < len(lines) and '-->' in lines[i + 1]):
                     break
                 block_texts.append(text_line)
                 i += 1
@@ -215,6 +216,9 @@ def convert_srt_file(input_path, output_folder, direction, converter,
 
         encoding = detect_encoding(input_path, log_callback, force_encoding)
         content = safe_read_file(input_path, encoding, log_callback)
+        if content is None:
+            log("无法读取文件内容，跳过转换")
+            return False
 
         if is_cancelled_callback and is_cancelled_callback():
             return False
@@ -238,8 +242,10 @@ def convert_srt_file(input_path, output_folder, direction, converter,
             converted_lines = converted_big.split('\1')
 
             # 重建每行（合并回标签）
-            for i, (block, li) in enumerate(((bi, li) for bi, block in enumerate(text_blocks) for li in range(len(block)))):
-                text_blocks[block][li] = _rejoin_tags(converted_lines[i], tag_maps[i])
+            for i, (bi, li) in enumerate(
+                (bi, li) for bi in range(len(text_blocks)) for li in range(len(text_blocks[bi]))
+            ):
+                text_blocks[bi][li] = _rejoin_tags(converted_lines[i], tag_maps[i])
 
         result_lines = _reassemble_srt(text_blocks, block_templates)
 
@@ -311,6 +317,9 @@ def convert_ass_file(input_path, output_folder, direction, converter,
 
         encoding = detect_encoding(input_path, log_callback, force_encoding)
         content = safe_read_file(input_path, encoding, log_callback)
+        if content is None:
+            log("无法读取文件内容，跳过转换")
+            return False
 
         if is_cancelled_callback and is_cancelled_callback():
             return False
@@ -351,12 +360,18 @@ def convert_ass_file(input_path, output_folder, direction, converter,
             converted_entries = converted_big.split('\1')
 
             for j, line_idx in enumerate(text_indices):
-                parts = lines[line_idx].split(',', 9)
-                parts[9] = _rejoin_tags(converted_entries[j], line_templates[j])
-                if lines[line_idx].lower().startswith('dialogue:'):
-                    lines[line_idx] = 'Dialogue:' + ','.join(parts)
+                line = lines[line_idx]
+                line_lower = line.lower()
+                if line_lower.startswith('dialogue:'):
+                    prefix = line[:9]
+                    rest = line[9:]
                 else:
-                    lines[line_idx] = 'Comment:' + ','.join(parts)
+                    prefix = line[:8]
+                    rest = line[8:]
+                parts = rest.split(',', 9)
+                if len(parts) >= 10:
+                    parts[9] = _rejoin_tags(converted_entries[j], line_templates[j])
+                    lines[line_idx] = prefix + ','.join(parts)
 
         converted_content = '\n'.join(lines)
         output_filename = f"convert_{os.path.basename(input_path)}"
@@ -395,6 +410,9 @@ def convert_lrc_file(input_path, output_folder, direction, converter,
 
         encoding = detect_encoding(input_path, log_callback, force_encoding)
         content = safe_read_file(input_path, encoding, log_callback)
+        if content is None:
+            log("无法读取文件内容，跳过转换")
+            return False
 
         if is_cancelled_callback and is_cancelled_callback():
             return False
@@ -520,6 +538,9 @@ def convert_txt_file(input_path, output_folder, direction, converter,
         encoding = detect_encoding(input_path, log_callback, force_encoding)
         log(f"最终使用的编码: {encoding}")
         content = safe_read_file(input_path, encoding, log_callback)
+        if content is None:
+            log("无法读取文件内容，跳过转换")
+            return False
 
         if is_cancelled_callback and is_cancelled_callback():
             return False
