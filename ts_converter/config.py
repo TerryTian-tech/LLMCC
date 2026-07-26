@@ -10,8 +10,8 @@ from pathlib import Path
 
 @dataclass
 class Config:
-    api_base_url: str = "https://api.openai.com/v1"
-    api_model: str = "gpt-4o-mini"
+    api_base_url: str = "https://api.deepseek.com"
+    api_model: str = "deepseek-v4-flash"
     api_key: str = ""
     context_window: int = 10
     batch_size: int = 8
