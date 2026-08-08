@@ -43,4 +43,4 @@ AI 判断结果会缓存在 `.ts_converter_cache.json ` 中，默认为当前用
 
 源于“[规范繁体字形转换器](https://github.com/TerryTian-tech/OpenCC-Traditional-Chinese-characters-according-to-Chinese-government-standards)”的部分：[Apache License 2.0](https://github.com/TerryTian-tech/OpenCC-Traditional-Chinese-characters-according-to-Chinese-government-standards/blob/main/LICENSE)
 
-其余部分：[Anti 996 License Version 1.0](https://github.com/TerryTian-tech/LLMCC/blob/main/LICENSE)
+主体部分：[Anti 996 License Version 1.0](https://github.com/TerryTian-tech/LLMCC/blob/main/LICENSE)
