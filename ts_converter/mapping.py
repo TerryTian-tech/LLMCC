@@ -12,7 +12,7 @@ MappingTables = namedtuple(
 
 def _load_one_to_one(path: Path) -> dict[str, str]:
     result: dict[str, str] = {}
-    for line in path.read_text(encoding="utf-8-sig").splitlines():
+    for line in path.read_text(encoding="UTF-8-SIG").splitlines():
         line = line.strip()
         if not line:
             continue
@@ -24,7 +24,7 @@ def _load_one_to_one(path: Path) -> dict[str, str]:
 
 def _load_one_to_many(path: Path) -> dict[str, list[str]]:
     result: dict[str, list[str]] = {}
-    for line in path.read_text(encoding="utf-8-sig").splitlines():
+    for line in path.read_text(encoding="UTF-8-SIG").splitlines():
         line = line.strip()
         if not line:
             continue

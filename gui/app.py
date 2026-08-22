@@ -323,7 +323,7 @@ class ConverterApp:
                 "转换效果取决于模型能力，但一般远高于传统转换的正确率。\n\n"
                 "虽然转换时只传输极少部分文本至AI厂商服务器，如果不希望文本被泄露，请不要使用本模块转换文件。\n"
                 "AI转换过程耗时且需向AI厂商提取支付token费用，不建议转换长文本和大文件。\n\n"
-                "模块版本：0.2.4 \n"
+                "模块版本：0.2.5 \n"
                 "使用前请知悉本模块单独采用Anti-996-License 1.0许可证，主程序其余功能仍遵循Apache 2.0协议许可。\n\n"
                 "本模块开源仓库地址：https://github.com/TerryTian-tech/LLMCC \n\n"
                 "规范繁体字形转换器开源仓库地址：https://github.com/TerryTian-tech/OpenCC-Traditional- \n"
