@@ -347,8 +347,9 @@ class ConverterApp:
     def _browse_input_file(self):
         path = filedialog.askopenfilename(
             filetypes=[
-                ("所有支持的文件", "*.txt;*.srt;*.ass;*.ssa;*.lrc;*.doc;*.docx;*.epub"),
+                ("所有支持的文件", "*.txt;*.md;*.srt;*.ass;*.ssa;*.lrc;*.doc;*.docx;*.epub"),
                 ("文本文件", "*.txt"),
+                ("Markdown 文件", "*.md"),
                 ("字幕文件", "*.srt;*.ass;*.ssa;*.lrc"),
                 ("Word 文档", "*.doc;*.docx"),
                 ("EPUB 电子书", "*.epub"),
@@ -486,6 +487,13 @@ class ConverterApp:
                 force_encoding=force_enc,
                 log_callback=log, is_cancelled_callback=self._cancel_event.is_set,
             )
+        elif ext == '.md':
+            from text_converter import convert_txt_file
+            result = convert_txt_file(
+                str(input_path), str(output_dir), direction, self.converter,
+                force_encoding=force_enc,
+                log_callback=log, is_cancelled_callback=self._cancel_event.is_set,
+            )
         elif ext in ('.srt',):
             from text_converter import convert_srt_file
             result = convert_srt_file(
@@ -548,7 +556,7 @@ class ConverterApp:
         self.root.after(0, lambda r=result: self._log(f"完成：{r}" if r else "转换失败"))
 
     def _convert_folder(self, input_path, output_dir, direction):
-        supported = ('*.txt', '*.srt', '*.ass', '*.ssa', '*.lrc',
+        supported = ('*.txt', '*.md', '*.srt', '*.ass', '*.ssa', '*.lrc',
                      '*.doc', '*.docx', '*.epub')
         files = []
         for pattern in supported:
