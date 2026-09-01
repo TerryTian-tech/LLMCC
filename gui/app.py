@@ -491,7 +491,6 @@ class ConverterApp:
             from text_converter import convert_txt_file
             result = convert_txt_file(
                 str(input_path), str(output_dir), direction, self.converter,
-                force_encoding=force_enc,
                 log_callback=log, is_cancelled_callback=self._cancel_event.is_set,
             )
         elif ext in ('.srt',):
