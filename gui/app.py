@@ -545,6 +545,12 @@ class ConverterApp:
                 str(input_path), str(output_dir), direction, self.converter,
                 log_callback=log, is_cancelled_callback=self._cancel_event.is_set,
             )
+        elif ext == '.pdf':
+            from pdf_converter import convert_pdf_file
+            result = convert_pdf_file(
+                str(input_path), str(output_dir), direction, self.converter,
+                log_callback=log, is_cancelled_callback=self._cancel_event.is_set,
+            )
         else:
             from text_converter import convert_txt_file
             result = convert_txt_file(
@@ -556,7 +562,7 @@ class ConverterApp:
 
     def _convert_folder(self, input_path, output_dir, direction):
         supported = ('*.txt', '*.md', '*.srt', '*.ass', '*.ssa', '*.lrc',
-                     '*.doc', '*.docx', '*.epub')
+                     '*.doc', '*.docx', '*.epub', '*.pdf')
         files = []
         for pattern in supported:
             files.extend(input_path.glob(pattern))

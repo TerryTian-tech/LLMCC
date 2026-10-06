@@ -5,3 +5,5 @@ beautifulsoup4>=4.15.0
 lxml>=6.1.1
 pywin32>=312
 sv-ttk>=2.6.1
+pdf-oxide>=0.3.78
+Pillow>=12.3.0
