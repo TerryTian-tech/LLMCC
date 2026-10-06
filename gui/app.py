@@ -347,13 +347,14 @@ class ConverterApp:
     def _browse_input_file(self):
         path = filedialog.askopenfilename(
             filetypes=[
-                ("所有支持的文件", "*.txt;*.md;*.srt;*.ass;*.ssa;*.lrc;*.doc;*.docx;*.epub"),
+                ("所有支持的文件", "*.txt;*.md;*.srt;*.ass;*.ssa;*.lrc;*.doc;*.docx;*.epub;*.pdf"),
                 ("文本文件", "*.txt"),
                 ("Markdown 文件", "*.md"),
                 ("字幕文件", "*.srt;*.ass;*.ssa;*.lrc"),
                 ("Word 文档", "*.doc;*.docx"),
                 ("EPUB 电子书", "*.epub"),
-                ("所有文件", "*.*"),
+                ("PDF 文件", "*.pdf"),
+                ("所有文件", "*.*")
             ]
         )
         if path:
