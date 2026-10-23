@@ -32,6 +32,27 @@ DEFAULT_CONFIG_PATH = Path.home() / ".ts_converter_config.json"
 DEFAULT_CACHE_PATH = Path.home() / ".ts_converter_cache.json"
 DATA_DIR = Path(__file__).resolve().parent.parent / "data"
 
+# 接口协议选项：(配置值, 界面显示名)
+_API_PROTOCOLS = [
+    ("openai_chat", "OpenAI Chat（chat/completions）"),
+    ("openai_responses", "OpenAI Responses（responses）"),
+    ("anthropic", "Anthropic（messages）"),
+]
+
+
+def _protocol_label(value: str) -> str:
+    for v, label in _API_PROTOCOLS:
+        if v == value:
+            return label
+    return _API_PROTOCOLS[0][1]
+
+
+def _protocol_value(label: str) -> str:
+    for v, l in _API_PROTOCOLS:
+        if l == label:
+            return v
+    return "openai_chat"
+
 
 class _GuiLogHandler(logging.Handler):
     """将 Python logging 消息转发到 GUI 日志框（线程安全）。"""
@@ -60,10 +81,20 @@ class ConverterApp:
         y = (sh - 680) // 2
         self.root.geometry(f"+{x}+{y}")
 
-        # 图标
+        # 图标：Windows 支持 .ico；X11 的 iconbitmap 仅支持 XBM，传 .ico
+        # 会抛 TclError，回退用 iconphoto（PIL 加载，PhotoImage 需持引用防 GC）
         icon_path = Path(__file__).resolve().parent.parent / "logo.ico"
         if icon_path.exists():
-            self.root.iconbitmap(default=str(icon_path))
+            try:
+                self.root.iconbitmap(default=str(icon_path))
+            except tk.TclError:
+                try:
+                    from PIL import Image, ImageTk
+                    with Image.open(icon_path) as im:
+                        self._icon_photo = ImageTk.PhotoImage(im)
+                    self.root.iconphoto(True, self._icon_photo)
+                except Exception:
+                    pass  # 图标设置失败不影响功能
 
         self._cancel_event = threading.Event()
         self._worker_thread = None
@@ -254,6 +285,14 @@ class ConverterApp:
         )
         self.ctx_window_var = tk.StringVar(value=str(self.config.context_window))
         self.save_key_var = tk.BooleanVar(value=self.config.save_api_key)
+        self.protocol_var = tk.StringVar(value=_protocol_label(self.config.api_protocol))
+
+        # 接口协议（第 1 行，只读下拉）
+        ttk.Label(frm, text="接口协议：").grid(row=1, column=0, sticky="w", pady=2)
+        ttk.Combobox(
+            frm, textvariable=self.protocol_var, state="readonly",
+            values=[label for _v, label in _API_PROTOCOLS],
+        ).grid(row=1, column=1, sticky="we", padx=(pad, 0), pady=2)
 
         rows = [
             ("Base URL：", self.base_url_var, None),
@@ -261,7 +300,7 @@ class ConverterApp:
             ("API Key：", self.key_var, "*"),
             ("上下文窗口：", self.ctx_window_var, None),
         ]
-        for i, (label, var, show) in enumerate(rows):
+        for i, (label, var, show) in enumerate(rows, start=2):
             ttk.Label(frm, text=label).grid(row=i, column=0, sticky="w", pady=2)
             entry = ttk.Entry(frm, textvariable=var)
             if show:
@@ -272,7 +311,7 @@ class ConverterApp:
         ttk.Checkbutton(
             frm, text="记住 API Key",
             variable=self.save_key_var,
-        ).grid(row=len(rows), column=1, sticky="w", pady=(pad, 0))
+        ).grid(row=len(rows) + 2, column=1, sticky="w", pady=(pad, 0))
 
         frm = ttk.LabelFrame(parent, text="缓存", padding=pad)
         frm.pack(fill="x", pady=(0, pad))
@@ -318,12 +357,12 @@ class ConverterApp:
                 "规范繁体字形转换器-AI繁简转换模块\n\n"
                 "本模块系“规范繁体字形转换器”的AI转换模块，因系独立构建，亦可脱离主程序单独使用。\n\n"
                 "目前只支持繁—简、简—繁转换，对转换中出现的“一对多”情形，调用大模型 API 根据上下文语义判断。\n\n"
-                "使用前请在初始设置里填写兼容OpenAI格式的API接口地址、模型名称、API Key， \n"
-                "一般AI厂商的API平台所附接口文档会有说明。\n\n"
+                "使用前请在初始设置里选择接口协议（OpenAI Chat / OpenAI Responses / Anthropic），\n"
+                "并填写对应的API接口地址、模型名称、API Key，一般AI厂商的API平台所附接口文档会有说明。\n\n"
                 "转换效果取决于模型能力，但一般远高于传统转换的正确率。\n\n"
                 "虽然转换时只传输极少部分文本至AI厂商服务器，如果不希望文本被泄露，请不要使用本模块转换文件。\n"
                 "AI转换过程耗时且需向AI厂商提取支付token费用，不建议转换长文本和大文件。\n\n"
-                "模块版本：0.2.8 \n"
+                "模块版本：0.2.9 \n"
                 "使用前请知悉本模块单独采用Anti-996-License 1.0许可证，主程序其余功能仍遵循Apache 2.0协议许可。\n\n"
                 "本模块开源仓库地址：https://github.com/TerryTian-tech/LLMCC \n\n"
                 "规范繁体字形转换器开源仓库地址：https://github.com/TerryTian-tech/OpenCC-Traditional- \n"
@@ -347,14 +386,19 @@ class ConverterApp:
     def _browse_input_file(self):
         path = filedialog.askopenfilename(
             filetypes=[
-                ("所有支持的文件", "*.txt;*.md;*.srt;*.ass;*.ssa;*.lrc;*.doc;*.docx;*.epub;*.pdf"),
+                # 多扩展名必须用列表（转成 Tcl 列表）："*.a;*.b" 的分号
+                # 写法仅 Windows 认，X11 上整串按字面 glob 处理、匹配不到
+                # 任何文件；"所有文件" 用 "*"（Unix 上 "*.*" 匹配不到无
+                # 扩展名的文件）
+                ("所有支持的文件", ("*.txt", "*.md", "*.srt", "*.ass", "*.ssa",
+                                  "*.lrc", "*.doc", "*.docx", "*.epub", "*.pdf")),
                 ("文本文件", "*.txt"),
                 ("Markdown 文件", "*.md"),
-                ("字幕文件", "*.srt;*.ass;*.ssa;*.lrc"),
-                ("Word 文档", "*.doc;*.docx"),
+                ("字幕文件", ("*.srt", "*.ass", "*.ssa", "*.lrc")),
+                ("Word 文档", ("*.doc", "*.docx")),
                 ("EPUB 电子书", "*.epub"),
                 ("PDF 文件", "*.pdf"),
-                ("所有文件", "*.*")
+                ("所有文件", "*"),
             ]
         )
         if path:
@@ -400,6 +444,7 @@ class ConverterApp:
         self.config.api_base_url = self.base_url_var.get().strip()
         self.config.api_model = self.model_var.get().strip()
         self.config.api_key = self.key_var.get().strip()
+        self.config.api_protocol = _protocol_value(self.protocol_var.get())
         self.config.save_api_key = self.save_key_var.get()
         try:
             self.config.context_window = int(self.ctx_window_var.get())
@@ -441,9 +486,17 @@ class ConverterApp:
         self.convert_btn.configure(state="disabled")
         self.cancel_btn.configure(state="normal")
 
+        # 在主线程读取 UI 状态（tkinter 非线程安全，worker 线程不直接读取）
+        enc = self.encoding_var.get()
+        options = {
+            "force_encoding": None if enc == "自动检测" else enc,
+            "preserve_format": self.preserve_fmt_var.get(),
+            "convert_footnotes": self.convert_fns_var.get(),
+        }
+
         self._worker_thread = threading.Thread(
             target=self._convert_worker,
-            args=(input_path, output_dir, direction),
+            args=(input_path, output_dir, direction, options),
         )
         self._worker_thread.daemon = True
         self._worker_thread.start()
@@ -452,12 +505,12 @@ class ConverterApp:
         self._cancel_event.set()
         self._log("正在取消…")
 
-    def _convert_worker(self, input_path, output_dir, direction):
+    def _convert_worker(self, input_path, output_dir, direction, options):
         try:
             if input_path.is_file():
-                self._convert_single_file(input_path, output_dir, direction)
+                self._convert_single_file(input_path, output_dir, direction, options)
             elif input_path.is_dir():
-                self._convert_folder(input_path, output_dir, direction)
+                self._convert_folder(input_path, output_dir, direction, options)
             else:
                 self.root.after(
                     0, lambda: messagebox.showerror("错误", "输入路径无效")
@@ -466,20 +519,25 @@ class ConverterApp:
             err = str(e)
             self.root.after(0, lambda msg=err: messagebox.showerror("错误", msg))
         finally:
-            self.cache.save()
+            try:
+                self.cache.save()
+            except Exception as e:
+                # 保存失败不应中断 UI 状态恢复（否则进度条会永久卡住）
+                self.root.after(0, self._log, f"缓存保存失败: {e}")
             self.root.after(0, self._update_cache_info)
             self.root.after(0, self.progress.stop)
             self.root.after(0, lambda: self.convert_btn.configure(state="normal"))
             self.root.after(0, lambda: self.cancel_btn.configure(state="disabled"))
             self._worker_thread = None
 
-    def _convert_single_file(self, input_path, output_dir, direction):
+    def _convert_single_file(self, input_path, output_dir, direction, options):
         if self._cancel_event.is_set():
             return
         ext = input_path.suffix.lower()
         log = lambda msg: self.root.after(0, self._log, msg)  # 线程安全
-        enc = self.encoding_var.get()
-        force_enc = None if enc == "自动检测" else enc
+        force_enc = options["force_encoding"]
+        preserve_fmt = options["preserve_format"]
+        convert_fns = options["convert_footnotes"]
 
         if ext == '.txt':
             from text_converter import convert_txt_file
@@ -522,8 +580,8 @@ class ConverterApp:
                 from doc_converter import convert_docx_file
                 result = convert_docx_file(
                     docx_path, str(output_dir), direction, self.converter,
-                    preserve_format=self.preserve_fmt_var.get(),
-                    convert_footnotes=self.convert_fns_var.get(),
+                    preserve_format=preserve_fmt,
+                    convert_footnotes=convert_fns,
                     log_callback=log, is_cancelled_callback=self._cancel_event.is_set,
                 )
                 try:
@@ -536,8 +594,8 @@ class ConverterApp:
             from doc_converter import convert_docx_file
             result = convert_docx_file(
                 str(input_path), str(output_dir), direction, self.converter,
-                preserve_format=self.preserve_fmt_var.get(),
-                convert_footnotes=self.convert_fns_var.get(),
+                preserve_format=preserve_fmt,
+                convert_footnotes=convert_fns,
                 log_callback=log, is_cancelled_callback=self._cancel_event.is_set,
             )
         elif ext == '.epub':
@@ -553,21 +611,30 @@ class ConverterApp:
                 log_callback=log, is_cancelled_callback=self._cancel_event.is_set,
             )
         else:
-            from text_converter import convert_txt_file
-            result = convert_txt_file(
-                str(input_path), str(output_dir), direction, self.converter,
-                force_encoding=force_enc,
-                log_callback=log, is_cancelled_callback=self._cancel_event.is_set,
-            )
-        self.root.after(0, lambda r=result: self._log(f"完成：{r}" if r else "转换失败"))
+            log(f"不支持的文件类型: {input_path.suffix or '（无扩展名）'}，已跳过")
+            return
 
-    def _convert_folder(self, input_path, output_dir, direction):
+        if self._cancel_event.is_set():
+            self.root.after(0, lambda: self._log("已取消"))
+        elif result:
+            self.root.after(0, lambda r=result: self._log(f"完成：{r}"))
+        else:
+            self.root.after(0, lambda: self._log("转换失败"))
+
+    def _convert_folder(self, input_path, output_dir, direction, options):
         supported = ('*.txt', '*.md', '*.srt', '*.ass', '*.ssa', '*.lrc',
                      '*.doc', '*.docx', '*.epub', '*.pdf')
         files = []
         for pattern in supported:
             files.extend(input_path.glob(pattern))
         files = sorted(files, key=lambda p: p.name)
+
+        # 输出目录与输入目录相同时，跳过本工具此前生成的文件，避免反复套娃转换
+        generated = [f for f in files if f.name.startswith("convert_")]
+        if generated:
+            self.root.after(0, lambda: self._log(
+                f"跳过 {len(generated)} 个此前已生成的 convert_ 前缀文件"))
+            files = [f for f in files if not f.name.startswith("convert_")]
 
         if not files:
             self.root.after(0, lambda: self._log("输入文件夹中没有支持的文件"))
@@ -578,7 +645,7 @@ class ConverterApp:
             if self._cancel_event.is_set():
                 self.root.after(0, lambda: self._log("已取消转换"))
                 break
-            self._convert_single_file(f, output_dir, direction)
+            self._convert_single_file(f, output_dir, direction, options)
 
     # ── 主循环 ────────────────────────────────────────────
 

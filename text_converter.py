@@ -135,64 +135,75 @@ def safe_read_file(file_path, encoding, log_callback=None):
 
 # ── SRT 字幕 ──────────────────────────────────────────
 
+def _is_timecode_line(line: str) -> bool:
+    """判断 SRT 时间码行（00:00:01,000 --> 00:00:03,000 及其变体）。"""
+    return '-->' in line and re.search(r'\d{1,2}:\d{2}', line.split('-->')[0]) is not None
+
+
 def _collect_srt_texts(content: str) -> tuple[list[list[str]], list]:
-    """解析 SRT，收集所有字幕文本行，返回 (text_blocks, block_templates)。"""
+    """解析 SRT，收集所有字幕文本行，返回 (text_blocks, block_templates)。
+
+    兼容两种块结构：标准的「序号 + 时间码 + 文本」和缺省序号的
+    「时间码 + 文本」变体。序号可为 None，重建时按原样保留。
+    """
     lines = content.split('\n')
-    header_lines: list[str] = []      # 序号+时间码行
     text_blocks: list[list[str]] = []  # 每个字幕块的文本行集合
-    block_templates: list[list[str | tuple]] = []  # 重建模板
+    block_templates: list[list] = []   # 重建模板
     i = 0
 
     while i < len(lines):
         line = lines[i]
-        if line.strip().isdigit() and i + 1 < len(lines) and '-->' in lines[i + 1]:
-            # 序号行
-            seq_line = line
+        if (line.strip().isdigit() and i + 1 < len(lines)
+                and _is_timecode_line(lines[i + 1])):
+            seq_line: str | None = line
+            time_line = lines[i + 1]
+            i += 2
+        elif _is_timecode_line(line):
+            seq_line = None
+            time_line = line
             i += 1
-            time_line = lines[i]
-            i += 1
-
-            block_texts: list[str] = []
-            while i < len(lines):
-                text_line = lines[i]
-                if text_line.strip() == '':
-                    i += 1
-                    break
-                if (not block_texts and text_line.strip().isdigit()
-                        and i + 1 < len(lines) and '-->' in lines[i + 1]):
-                    break
-                block_texts.append(text_line)
-                i += 1
-
-            if block_texts:
-                text_blocks.append(block_texts)
-                block_templates.append(('block', len(text_blocks) - 1, seq_line, time_line))
-            else:
-                block_templates.append(('raw', seq_line, time_line))
         else:
             block_templates.append(('raw', line))
             i += 1
+            continue
+
+        block_texts: list[str] = []
+        while i < len(lines):
+            text_line = lines[i]
+            if text_line.strip() == '':
+                # 空行是块结束分隔符，但不消耗它：作为 raw 行保留，
+                # 重建时原样输出（消耗掉会让输出丢失块间空行）
+                break
+            if (not block_texts and text_line.strip().isdigit()
+                    and i + 1 < len(lines) and _is_timecode_line(lines[i + 1])):
+                break
+            block_texts.append(text_line)
+            i += 1
+
+        if block_texts:
+            text_blocks.append(block_texts)
+            block_templates.append(('block', len(text_blocks) - 1, seq_line, time_line))
+        else:
+            block_templates.append(('raw', seq_line, time_line))
 
     return text_blocks, block_templates
 
 
 def _reassemble_srt(text_blocks: list[list[str]], block_templates: list) -> list[str]:
-    """用转换后的 text_blocks 重建 SRT 行"""
+    """用转换后的 text_blocks 重建 SRT 行。"""
     result = []
     tb_idx = 0
     for item in block_templates:
         if item[0] == 'block':
             _, _, seq_line, time_line = item
-            result.append(seq_line)
+            if seq_line is not None:
+                result.append(seq_line)
             result.append(time_line)
-            for t in text_blocks[tb_idx]:
-                result.append(t)
+            result.extend(text_blocks[tb_idx])
             tb_idx += 1
-        elif item[0] == 'raw':
-            _, line = item
-            result.append(line)
         else:
-            result.append(item)
+            # ('raw', line...) 各元素原样输出
+            result.extend(item[1:])
     return result
 
 
@@ -265,12 +276,16 @@ def convert_srt_file(input_path, output_folder, direction, converter,
 _TAG_RE = re.compile(r'\{[^}]*\}')
 
 
-def _split_tags(text: str) -> tuple[list[str], list[str | None]]:
-    """将文本拆分为 (纯文本片段, 标签列表)。标签位置用 None 占位。"""
+def _split_tags(text: str, tag_re: "re.Pattern[str]" = _TAG_RE) -> tuple[list[str], list[str | None]]:
+    """将文本按 tag_re 拆分为 (纯文本片段, 标签列表)。标签位置用 None 占位。
+
+    tag_re 默认匹配 ASS 覆盖标签（大括号样式标签）；LRC 的尖括号
+    时间标签传入 _LRC_TAG_RE 复用同一逻辑。
+    """
     plain_parts: list[str] = []
     tag_parts: list[str | None] = []
     last_end = 0
-    for match in _TAG_RE.finditer(text):
+    for match in tag_re.finditer(text):
         plain_parts.append(text[last_end:match.start()])
         tag_parts.append(None)      # 纯文本占位
         tag_parts.append(match.group())  # 标签
@@ -442,7 +457,7 @@ def convert_lrc_file(input_path, output_folder, direction, converter,
             if time_match:
                 lyric_text = time_match.group(2)
                 if lyric_text:
-                    plain_parts, tag_parts = _split_lrc(lyric_text)
+                    plain_parts, tag_parts = _split_tags(lyric_text, _LRC_TAG_RE)
                     all_plain.append('\0'.join(plain_parts))
                     lyric_indices.append((i, tag_parts))
 
@@ -467,7 +482,7 @@ def convert_lrc_file(input_path, output_folder, direction, converter,
                 time_match = re.match(r'^((?:\[\d+:\d+(?:\.\d+)?\])+)(.*)$', stripped)
                 if time_match:
                     time_tags = time_match.group(1)
-                    converted_lyric = _rejoin_lrc(converted_parts[flat_start + j], tag_parts)
+                    converted_lyric = _rejoin_tags(converted_parts[flat_start + j], tag_parts)
                     indent = lines[line_idx][:lines[line_idx].index('[')] if '[' in lines[line_idx] else ''
                     lines[line_idx] = indent + time_tags + converted_lyric
 
@@ -481,35 +496,6 @@ def convert_lrc_file(input_path, output_folder, direction, converter,
     except Exception as e:
         log(f"处理LRC歌词文件 {input_path} 时出错: {str(e)}")
         return False
-
-
-def _split_lrc(text: str) -> tuple[list[str], list[str | None]]:
-    """拆分 LRC 歌词文本，保留 <nn> 标签"""
-    plain_parts: list[str] = []
-    tag_parts: list[str | None] = []
-    last_end = 0
-    for match in _LRC_TAG_RE.finditer(text):
-        plain_parts.append(text[last_end:match.start()])
-        tag_parts.append(None)
-        tag_parts.append(match.group())
-        last_end = match.end()
-    plain_parts.append(text[last_end:])
-    tag_parts.append(None)
-    return plain_parts, tag_parts
-
-
-def _rejoin_lrc(converted_plain: str, tag_parts: list[str | None]) -> str:
-    """将转换后的 LRC 纯文本按标签结构重新拼接"""
-    segments = converted_plain.split('\0')
-    seg_idx = 0
-    result: list[str] = []
-    for part in tag_parts:
-        if part is None:
-            result.append(segments[seg_idx] if seg_idx < len(segments) else '')
-            seg_idx += 1
-        else:
-            result.append(part)
-    return ''.join(result)
 
 
 # ── TXT 文本 ──────────────────────────────────────────

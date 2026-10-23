@@ -1,9 +1,10 @@
 requests>=2.34.0
 certifi>=2026.7.22
+chardet>=5.2.0
 python_docx>=1.2.0
 beautifulsoup4>=4.15.0
 lxml>=6.1.1
-pywin32>=312
+pywin32>=312; sys_platform == "win32"  # 仅 Windows：DOC 转换用的 Word/WPS COM
 sv-ttk>=2.6.1
 pdf-oxide>=0.3.78
 Pillow>=12.3.0

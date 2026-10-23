@@ -11,8 +11,9 @@ from pathlib import Path
 @dataclass
 class Config:
     api_base_url: str = "https://api.deepseek.com"
-    api_model: str = "deepseek-v4-flash"
+    api_model: str = "deepseek-flash"
     api_key: str = ""
+    api_protocol: str = "openai_chat"
     context_window: int = 10
     batch_size: int = 8
     save_api_key: bool = False
@@ -38,6 +39,11 @@ class Config:
             raise ValueError(
                 f"on_api_error 必须为 'fallback' 或 'abort'，当前值: {self.on_api_error}"
             )
+        if self.api_protocol not in ("openai_chat", "openai_responses", "anthropic"):
+            raise ValueError(
+                f"api_protocol 必须为 'openai_chat'、'openai_responses' 或 "
+                f"'anthropic'，当前值: {self.api_protocol}"
+            )
 
 
 DEFAULT_CONFIG = Config()
@@ -52,6 +58,8 @@ def load_config(path: Path) -> Config:
         data = json.loads(path.read_text(encoding="utf-8"))
     except (json.JSONDecodeError, OSError):
         return Config()
+    if not isinstance(data, dict):
+        return Config()  # 内容不是 JSON 对象（如被截断成数组），回退默认配置
     valid_fields = {f for f in Config.__dataclass_fields__}
     filtered: dict = {}
     for k, v in data.items():

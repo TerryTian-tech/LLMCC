@@ -25,14 +25,34 @@ class TranslationCache:
             try:
                 data = json.loads(self.path.read_text(encoding="utf-8"))
                 if isinstance(data, dict):
-                    s2t = data.get("s2t", {})
-                    t2s = data.get("t2s", {})
-                    self._data = {
-                        "s2t": s2t if isinstance(s2t, dict) else {},
-                        "t2s": t2s if isinstance(t2s, dict) else {},
-                    }
+                    s2t = self._sanitize(data.get("s2t"))
+                    t2s = self._sanitize(data.get("t2s"))
+                    self._data = {"s2t": s2t, "t2s": t2s}
             except (json.JSONDecodeError, OSError):
                 logger.warning("缓存文件损坏，将重新创建")
+
+    @staticmethod
+    def _sanitize(section: object) -> dict[str, dict[str, str]]:
+        """校验嵌套结构，丢弃类型不正确的条目，防止 lookup 时链式 .get 抛错。"""
+        if not isinstance(section, dict):
+            return {}
+        dropped = 0
+        result: dict[str, dict[str, str]] = {}
+        for context, char_map in section.items():
+            if not isinstance(context, str) or not isinstance(char_map, dict):
+                dropped += 1
+                continue
+            valid = {
+                char: target
+                for char, target in char_map.items()
+                if isinstance(char, str) and isinstance(target, str)
+            }
+            dropped += len(char_map) - len(valid)
+            if valid:
+                result[context] = valid
+        if dropped:
+            logger.warning("缓存中 %d 条结构异常条目已忽略", dropped)
+        return result
 
     def lookup(self, direction: str, context: str, char: str) -> str | None:
         """查找缓存，未命中返回 None。"""
@@ -51,13 +71,10 @@ class TranslationCache:
     def save(self) -> None:
         """持久化到 JSON 文件。"""
         with self._lock:
-            data_copy = json.loads(
-                json.dumps(self._data, ensure_ascii=False)
-            )
+            # dumps 在锁内序列化，本身即是对当前数据的原子快照
+            text = json.dumps(self._data, ensure_ascii=False, indent=2)
             self.path.parent.mkdir(parents=True, exist_ok=True)
-            self.path.write_text(
-                json.dumps(data_copy, ensure_ascii=False, indent=2), encoding="utf-8"
-            )
+            self.path.write_text(text, encoding="utf-8")
 
     def entry_count(self) -> int:
         """返回缓存总条数。"""

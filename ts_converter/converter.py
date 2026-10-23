@@ -74,8 +74,15 @@ class Converter:
                 direction=direction,
                 fallback_on_error=(self.config.on_api_error == "fallback"),
                 quality_mode=self.quality_mode,
+                is_cancelled_callback=(
+                    self._cancel_event.is_set if self._cancel_event else None
+                ),
             )
             for (_, ch, ctx), target in zip(batch, resolved):
+                if target is None:
+                    # API 失败/未解析项：本次转换走 fallback，不写入缓存，
+                    # 避免猜测值永久取代后续的 AI 判断
+                    continue
                 self.cache.store(direction, ctx, ch, target)
                 ai_results[(ctx, ch)] = target
 
