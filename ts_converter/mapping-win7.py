@@ -17,7 +17,7 @@ MappingTables = namedtuple(
 
 def _load_one_to_one(path: Path) -> Dict[str, str]:
     result: Dict[str, str] = {}
-    for line in path.read_text(encoding="UTF-8-SIG").splitlines():
+    for line in path.read_text(encoding="utf-8-sig").splitlines():
         line = line.strip()
         if not line:
             continue
@@ -29,7 +29,7 @@ def _load_one_to_one(path: Path) -> Dict[str, str]:
 
 def _load_one_to_many(path: Path) -> Dict[str, List[str]]:
     result: Dict[str, List[str]] = {}
-    for line in path.read_text(encoding="UTF-8-SIG").splitlines():
+    for line in path.read_text(encoding="utf-8-sig").splitlines():
         line = line.strip()
         if not line:
             continue

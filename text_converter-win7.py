@@ -32,7 +32,7 @@ def detect_encoding(file_path, log_callback=None, force_encoding=None):
     confidence = result['confidence']
     log(f"chardet检测结果: {encoding} (置信度: {confidence})")
 
-    if encoding == 'GB2312' and confidence < 0.95:
+    if encoding == 'gb2312' and confidence < 0.95:
         try:
             raw_data.decode('gb18030', errors='strict')
             log("使用GB18030编码以确保兼容性")
@@ -40,8 +40,8 @@ def detect_encoding(file_path, log_callback=None, force_encoding=None):
         except UnicodeDecodeError:
             pass
 
-    if confidence < 0.7 or encoding in ['ISO-8859-1', 'Windows-1252', 'ASCII']:
-        chinese_encodings = ['GB18030', 'GBK', 'GB2312', 'Big5']
+    if confidence < 0.7 or encoding in ['ISO-8859-1', 'Windows-1252', 'ascii']:
+        chinese_encodings = ['gb18030', 'gbk', 'gb2312', 'big5']
         for enc in chinese_encodings:
             try:
                 decoded = raw_data.decode(enc, errors='strict')
@@ -58,7 +58,7 @@ def detect_encoding(file_path, log_callback=None, force_encoding=None):
             except UnicodeDecodeError:
                 continue
 
-        for enc in ['GB18030', 'GBK']:
+        for enc in ['gb18030', 'gbk']:
             try:
                 decoded = raw_data.decode(enc, errors='replace')
                 has_chinese = any(
@@ -92,10 +92,10 @@ def detect_encoding(file_path, log_callback=None, force_encoding=None):
 
     if not encoding:
         encoding = 'utf-8'
-    if encoding.lower() in ['GB2312', 'GBK']:
+    if encoding.lower() in ['gb2312', 'gbk']:
         log(f"将{encoding}升级为GB18030以确保更好的兼容性")
         return 'gb18030'
-    if encoding.lower() not in ['utf-8', 'UTF-8-SIG', 'GB18030', 'GBK', 'GB2312', 'Big5']:
+    if encoding.lower() not in ['utf-8', 'utf-8-sig', 'gb18030', 'gbk', 'gb2312', 'big5']:
         if confidence < 0.5:
             log(f"chardet检测到非中文编码'{encoding}'（置信度{confidence:.4%}），回退到GB18030")
             return 'gb18030'
