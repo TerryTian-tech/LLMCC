@@ -36,6 +36,10 @@ DEFAULT_CONFIG_PATH = Path.home() / ".ts_converter_config.json"
 DEFAULT_CACHE_PATH = Path.home() / ".ts_converter_cache.json"
 DATA_DIR = Path(__file__).resolve().parent.parent / "data"
 
+# 文件夹批量转换支持的文件类型（批量转换与覆盖检查共用，保持一致）
+_FOLDER_PATTERNS = ('*.txt', '*.md', '*.srt', '*.ass', '*.ssa', '*.lrc',
+                    '*.docx', '*.epub', '*.pdf')
+
 # 接口协议选项：(配置值, 界面显示名)
 _API_PROTOCOLS = [
     ("openai_chat", "OpenAI Chat（chat/completions）"),
@@ -458,6 +462,27 @@ class ConverterApp:
 
     # ── 转换 ──────────────────────────────────────────────
 
+    @staticmethod
+    def _predict_output_name(input_file: Path) -> str:
+        # 与各转换器的输出命名规则保持一致
+        return f"convert_{input_file.name}"
+
+    def _collect_overwrites(self, input_path: Path, output_dir: Path):
+        """返回本次转换会覆盖的已存在输出文件列表。"""
+        if input_path.is_file():
+            candidates = [input_path]
+        else:
+            files = []
+            for pattern in _FOLDER_PATTERNS:
+                files.extend(input_path.glob(pattern))
+            # 与 _convert_folder 一致：跳过此前生成的 convert_ 前缀文件
+            candidates = sorted(
+                (f for f in files if not f.name.startswith("convert_")),
+                key=lambda p: p.name,
+            )
+        outputs = [output_dir / self._predict_output_name(f) for f in candidates]
+        return [p for p in outputs if p.exists()]
+
     def _start_convert(self):
         if self._worker_thread and self._worker_thread.is_alive():
             return
@@ -482,6 +507,19 @@ class ConverterApp:
         if not self.config.api_key.strip():
             messagebox.showerror("错误", "请先填写 API Key")
             return
+
+        overwrites = self._collect_overwrites(input_path, output_dir)
+        if overwrites:
+            names = [p.name for p in overwrites]
+            preview = "\n".join(names[:5])
+            if len(names) > 5:
+                preview += f"\n… 等共 {len(names)} 个文件"
+            if not messagebox.askyesno(
+                "确认覆盖",
+                f"输出文件夹中已存在同名文件：\n\n{preview}\n\n是否覆盖？",
+            ):
+                self._log("已取消转换：输出文件夹中存在同名文件")
+                return
 
         output_dir.mkdir(parents=True, exist_ok=True)
 
@@ -606,10 +644,8 @@ class ConverterApp:
             self.root.after(0, lambda: self._log("转换失败"))
 
     def _convert_folder(self, input_path, output_dir, direction, options):
-        supported = ('*.txt', '*.md', '*.srt', '*.ass', '*.ssa', '*.lrc',
-                     '*.docx', '*.epub', '*.pdf')
         files = []
-        for pattern in supported:
+        for pattern in _FOLDER_PATTERNS:
             files.extend(input_path.glob(pattern))
         files = sorted(files, key=lambda p: p.name)
 

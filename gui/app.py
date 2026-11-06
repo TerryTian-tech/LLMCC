@@ -1,7 +1,8 @@
 """tkinter 图形界面 — 左右布局 + 选项卡。"""
 import ctypes
 import logging
-import os
+import shutil
+import tempfile
 import threading
 import tkinter as tk
 from pathlib import Path
@@ -31,6 +32,10 @@ warnings.filterwarnings("ignore", message=".*pkg_resources is deprecated.*")
 DEFAULT_CONFIG_PATH = Path.home() / ".ts_converter_config.json"
 DEFAULT_CACHE_PATH = Path.home() / ".ts_converter_cache.json"
 DATA_DIR = Path(__file__).resolve().parent.parent / "data"
+
+# 文件夹批量转换支持的文件类型（批量转换与覆盖检查共用，保持一致）
+_FOLDER_PATTERNS = ('*.txt', '*.md', '*.srt', '*.ass', '*.ssa', '*.lrc',
+                    '*.doc', '*.docx', '*.epub', '*.pdf')
 
 # 接口协议选项：(配置值, 界面显示名)
 _API_PROTOCOLS = [
@@ -454,6 +459,29 @@ class ConverterApp:
 
     # ── 转换 ──────────────────────────────────────────────
 
+    @staticmethod
+    def _predict_output_name(input_file: Path) -> str:
+        # 与各转换器的输出命名规则保持一致；.doc 的输出为 convert_<原名>.docx
+        if input_file.suffix.lower() == '.doc':
+            return f"convert_{input_file.name}.docx"
+        return f"convert_{input_file.name}"
+
+    def _collect_overwrites(self, input_path: Path, output_dir: Path):
+        """返回本次转换会覆盖的已存在输出文件列表。"""
+        if input_path.is_file():
+            candidates = [input_path]
+        else:
+            files = []
+            for pattern in _FOLDER_PATTERNS:
+                files.extend(input_path.glob(pattern))
+            # 与 _convert_folder 一致：跳过此前生成的 convert_ 前缀文件
+            candidates = sorted(
+                (f for f in files if not f.name.startswith("convert_")),
+                key=lambda p: p.name,
+            )
+        outputs = [output_dir / self._predict_output_name(f) for f in candidates]
+        return [p for p in outputs if p.exists()]
+
     def _start_convert(self):
         if self._worker_thread and self._worker_thread.is_alive():
             return
@@ -478,6 +506,19 @@ class ConverterApp:
         if not self.config.api_key.strip():
             messagebox.showerror("错误", "请先填写 API Key")
             return
+
+        overwrites = self._collect_overwrites(input_path, output_dir)
+        if overwrites:
+            names = [p.name for p in overwrites]
+            preview = "\n".join(names[:5])
+            if len(names) > 5:
+                preview += f"\n… 等共 {len(names)} 个文件"
+            if not messagebox.askyesno(
+                "确认覆盖",
+                f"输出文件夹中已存在同名文件：\n\n{preview}\n\n是否覆盖？",
+            ):
+                self._log("已取消转换：输出文件夹中存在同名文件")
+                return
 
         output_dir.mkdir(parents=True, exist_ok=True)
 
@@ -572,24 +613,30 @@ class ConverterApp:
             )
         elif ext == '.doc':
             from doc_converter import convert_doc_to_docx
-            docx_path = convert_doc_to_docx(
-                str(input_path), str(output_dir),
-                log_callback=log, is_cancelled_callback=self._cancel_event.is_set,
-            )
-            if docx_path:
-                from doc_converter import convert_docx_file
-                result = convert_docx_file(
-                    docx_path, str(output_dir), direction, self.converter,
-                    preserve_format=preserve_fmt,
-                    convert_footnotes=convert_fns,
+            # DOC→DOCX 中间文件放在临时目录：若直接写入输出文件夹，会覆盖其中
+            # 同名的 .docx（如就地转换时 a.doc 与 a.docx 并存），且随后被一并删除
+            tmp_dir = tempfile.mkdtemp(prefix="llmcc_doc_")
+            try:
+                docx_path = convert_doc_to_docx(
+                    str(input_path), tmp_dir,
                     log_callback=log, is_cancelled_callback=self._cancel_event.is_set,
                 )
-                try:
-                    os.remove(docx_path)  # 清理 DOC→DOCX 中间文件
-                except OSError:
-                    pass
-            else:
-                result = False
+                if docx_path:
+                    # 中间文件改名为 a.doc.docx，输出即为 convert_a.doc.docx，
+                    # 避免与同文件夹中 a.docx 的输出 convert_a.docx 互相覆盖
+                    named_path = Path(tmp_dir) / f"{input_path.name}.docx"
+                    Path(docx_path).rename(named_path)
+                    from doc_converter import convert_docx_file
+                    result = convert_docx_file(
+                        str(named_path), str(output_dir), direction, self.converter,
+                        preserve_format=preserve_fmt,
+                        convert_footnotes=convert_fns,
+                        log_callback=log, is_cancelled_callback=self._cancel_event.is_set,
+                    )
+                else:
+                    result = False
+            finally:
+                shutil.rmtree(tmp_dir, ignore_errors=True)  # 清理 DOC→DOCX 中间文件
         elif ext == '.docx':
             from doc_converter import convert_docx_file
             result = convert_docx_file(
@@ -622,10 +669,8 @@ class ConverterApp:
             self.root.after(0, lambda: self._log("转换失败"))
 
     def _convert_folder(self, input_path, output_dir, direction, options):
-        supported = ('*.txt', '*.md', '*.srt', '*.ass', '*.ssa', '*.lrc',
-                     '*.doc', '*.docx', '*.epub', '*.pdf')
         files = []
-        for pattern in supported:
+        for pattern in _FOLDER_PATTERNS:
             files.extend(input_path.glob(pattern))
         files = sorted(files, key=lambda p: p.name)
 
