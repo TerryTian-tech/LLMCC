@@ -467,20 +467,36 @@ class ConverterApp:
         # 与各转换器的输出命名规则保持一致
         return f"convert_{input_file.name}"
 
+    def _collect_folder_files(self, input_path: Path):
+        """递归收集文件夹（含子文件夹）中所有支持的文件。
+
+        返回 (待转换文件列表, 跳过的 convert_ 前缀文件数)；跳过此前
+        生成的文件是为了就地转换（输出目录=输入目录）时不反复套娃。
+        """
+        files = []
+        for pattern in _FOLDER_PATTERNS:
+            files.extend(f for f in input_path.rglob(pattern) if f.is_file())
+        files.sort(key=lambda p: p.relative_to(input_path).as_posix())
+        kept = [f for f in files if not f.name.startswith("convert_")]
+        return kept, len(files) - len(kept)
+
+    @staticmethod
+    def _file_output_dir(input_path: Path, file: Path, output_dir: Path) -> Path:
+        # 子文件夹中的文件输出到输出目录下的同名子文件夹，保持目录结构，
+        # 也避免不同子文件夹里的同名文件在输出时互相覆盖
+        return output_dir / file.parent.relative_to(input_path)
+
     def _collect_overwrites(self, input_path: Path, output_dir: Path):
         """返回本次转换会覆盖的已存在输出文件列表。"""
         if input_path.is_file():
-            candidates = [input_path]
+            outputs = [output_dir / self._predict_output_name(input_path)]
         else:
-            files = []
-            for pattern in _FOLDER_PATTERNS:
-                files.extend(input_path.glob(pattern))
-            # 与 _convert_folder 一致：跳过此前生成的 convert_ 前缀文件
-            candidates = sorted(
-                (f for f in files if not f.name.startswith("convert_")),
-                key=lambda p: p.name,
-            )
-        outputs = [output_dir / self._predict_output_name(f) for f in candidates]
+            candidates, _skipped = self._collect_folder_files(input_path)
+            outputs = [
+                self._file_output_dir(input_path, f, output_dir)
+                / self._predict_output_name(f)
+                for f in candidates
+            ]
         return [p for p in outputs if p.exists()]
 
     def _start_convert(self):
@@ -510,7 +526,8 @@ class ConverterApp:
 
         overwrites = self._collect_overwrites(input_path, output_dir)
         if overwrites:
-            names = [p.name for p in overwrites]
+            # 显示相对输出目录的路径，子文件夹中的文件一目了然
+            names = [str(p.relative_to(output_dir)) for p in overwrites]
             preview = "\n".join(names[:5])
             if len(names) > 5:
                 preview += f"\n… 等共 {len(names)} 个文件"
@@ -644,28 +661,25 @@ class ConverterApp:
             self.root.after(0, lambda: self._log("转换失败"))
 
     def _convert_folder(self, input_path, output_dir, direction, options):
-        files = []
-        for pattern in _FOLDER_PATTERNS:
-            files.extend(input_path.glob(pattern))
-        files = sorted(files, key=lambda p: p.name)
-
-        # 输出目录与输入目录相同时，跳过本工具此前生成的文件，避免反复套娃转换
-        generated = [f for f in files if f.name.startswith("convert_")]
+        files, generated = self._collect_folder_files(input_path)
         if generated:
             self.root.after(0, lambda: self._log(
-                f"跳过 {len(generated)} 个此前已生成的 convert_ 前缀文件"))
-            files = [f for f in files if not f.name.startswith("convert_")]
+                f"跳过 {generated} 个此前已生成的 convert_ 前缀文件"))
 
         if not files:
             self.root.after(0, lambda: self._log("输入文件夹中没有支持的文件"))
             return
 
-        self.root.after(0, lambda: self._log(f"共发现 {len(files)} 个文件"))
+        self.root.after(0, lambda: self._log(
+            f"共发现 {len(files)} 个文件（含子文件夹）"))
         for f in files:
             if self._cancel_event.is_set():
                 self.root.after(0, lambda: self._log("已取消转换"))
                 break
-            self._convert_single_file(f, output_dir, direction, options)
+            self._convert_single_file(
+                f, self._file_output_dir(input_path, f, output_dir),
+                direction, options,
+            )
 
     # ── 主循环 ────────────────────────────────────────────
 
