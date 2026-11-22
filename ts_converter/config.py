@@ -4,7 +4,7 @@
 """
 import json
 import os
-from dataclasses import dataclass, asdict
+from dataclasses import dataclass, asdict, field
 from pathlib import Path
 
 
@@ -25,6 +25,10 @@ class Config:
     force_encoding: str = ""
     preserve_format: bool = True
     convert_footnotes: bool = True
+    folder_scan_mode: str = "all"  # "all"=全部支持的类型，"selected"=仅指定类型
+    folder_file_types: list = field(default_factory=lambda: [
+        "txt", "md", "srt", "ass", "ssa", "lrc", "doc", "docx", "epub", "pdf"])
+    keep_output_name: bool = False
 
     def __post_init__(self):
         if self.batch_size < 1:
@@ -43,6 +47,16 @@ class Config:
             raise ValueError(
                 f"api_protocol 必须为 'openai_chat'、'openai_responses' 或 "
                 f"'anthropic'，当前值: {self.api_protocol}"
+            )
+        if self.folder_scan_mode not in ("all", "selected"):
+            raise ValueError(
+                f"folder_scan_mode 必须为 'all' 或 'selected'，"
+                f"当前值: {self.folder_scan_mode}"
+            )
+        if not isinstance(self.folder_file_types, list) or not all(
+                isinstance(t, str) for t in self.folder_file_types):
+            raise ValueError(
+                f"folder_file_types 必须为字符串列表，当前值: {self.folder_file_types}"
             )
 
 

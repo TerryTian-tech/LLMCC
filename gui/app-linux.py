@@ -36,9 +36,10 @@ DEFAULT_CONFIG_PATH = Path.home() / ".ts_converter_config.json"
 DEFAULT_CACHE_PATH = Path.home() / ".ts_converter_cache.json"
 DATA_DIR = Path(__file__).resolve().parent.parent / "data"
 
-# 文件夹批量转换支持的文件类型（批量转换与覆盖检查共用，保持一致）
-_FOLDER_PATTERNS = ('*.txt', '*.md', '*.srt', '*.ass', '*.ssa', '*.lrc',
-                    '*.docx', '*.epub', '*.pdf')
+# 文件夹批量转换支持的文件类型（设置页类型勾选、文件夹扫描与覆盖检查
+# 共用，保持一致）
+_FOLDER_FILE_TYPES = ('txt', 'md', 'srt', 'ass', 'ssa', 'lrc',
+                      'docx', 'epub', 'pdf')
 
 # 接口协议选项：(配置值, 界面显示名)
 _API_PROTOCOLS = [
@@ -79,15 +80,14 @@ class ConverterApp:
     def __init__(self, root: tk.Tk):
         self.root = root
         self.root.title("规范繁体字形转换器-AI繁简转换模块")
-        self.root.geometry("960x680")
 
-        # 窗口居中
-        self.root.update_idletasks()
+        # 窗口尺寸与居中：高度不超过屏幕（设置页可竖向滚动，小屏不裁内容）
         sw = self.root.winfo_screenwidth()
         sh = self.root.winfo_screenheight()
-        x = (sw - 960) // 2
-        y = (sh - 680) // 2
-        self.root.geometry(f"+{x}+{y}")
+        win_h = min(760, max(520, sh - 80))
+        x = max(0, (sw - 960) // 2)
+        y = max(0, (sh - win_h) // 2)
+        self.root.geometry(f"960x{win_h}+{x}+{y}")
 
         # 图标：Windows 支持 .ico；X11 的 iconbitmap 仅支持 XBM，传 .ico
         # 会抛 TclError，回退用 iconphoto（PIL 加载，PhotoImage 需持引用防 GC）
@@ -231,11 +231,17 @@ class ConverterApp:
             frm, text="繁体到简体", variable=self.direction_var, value="t2s"
         ).pack(side="left")
 
-        ttk.Label(
+        # 命名提示随“文件名与原文件名一致”设置更新（见 _update_output_hint）
+        self.output_hint = ttk.Label(
             parent,
-            text="输出文件名由转换器自动生成（如 convert_xxx.txt）",
+            text=(
+                "文件夹转换且输出目录不同时，输出文件名与原文件名一致"
+                if self.config.keep_output_name
+                else "输出文件名由转换器自动生成（如 convert_xxx.txt）"
+            ),
             foreground="gray",
-        ).pack(anchor="w", pady=(0, pad))
+        )
+        self.output_hint.pack(anchor="w", pady=(0, pad))
 
         # 日志
         log_frame = ttk.LabelFrame(parent, text="日志", padding=5)
@@ -250,8 +256,71 @@ class ConverterApp:
         self.log_box.pack(side="left", fill="both", expand=True)
         log_scroll.pack(side="right", fill="y")
 
+    def _make_scrollable(self, parent: ttk.Frame) -> ttk.Frame:
+        """把 parent 变为竖向可滚动区域，返回实际承载内容的内层 frame。
+
+        内容高于可视区域时才显示滚动条；内层宽度跟随画布，fill="x"
+        的分组仍占满整行；内容不足一屏时内层撑满画布高度，避免露出
+        画布底色（暗色主题下尤其明显）。滚轮接管见 _bind_page_wheel。
+        """
+        self._scroll_canvas = canvas = tk.Canvas(
+            parent, highlightthickness=0, borderwidth=0)
+        vbar = ttk.Scrollbar(parent, orient="vertical", command=canvas.yview)
+        canvas.configure(yscrollcommand=vbar.set)
+        canvas.pack(side="left", fill="both", expand=True)
+        inner = ttk.Frame(canvas)
+        win = canvas.create_window((0, 0), window=inner, anchor="nw")
+
+        def sync_bar():
+            # 内容高于可视区时才显示滚动条
+            overflow = inner.winfo_reqheight() > canvas.winfo_height()
+            if overflow and vbar.winfo_manager() != "pack":
+                vbar.pack(side="right", fill="y")
+            elif not overflow and vbar.winfo_manager() == "pack":
+                vbar.pack_forget()
+
+        def on_inner_config(_e):
+            canvas.configure(scrollregion=canvas.bbox("all"))
+            sync_bar()
+
+        def on_canvas_config(e):
+            # 内层宽度跟随画布；不足一屏时撑满高度（height=0 表示还原）
+            canvas.itemconfigure(win, width=e.width)
+            canvas.itemconfigure(
+                win, height=e.height if inner.winfo_reqheight() < e.height else 0)
+            sync_bar()
+
+        inner.bind("<Configure>", on_inner_config)
+        canvas.bind("<Configure>", on_canvas_config)
+        return inner
+
+    def _bind_page_wheel(self, root: tk.Widget):
+        """root 及其子孙接管鼠标滚轮，滚动 _make_scrollable 建立的画布。
+
+        绑定在控件自身并返回 "break"，优先于组合框等类级滚轮绑定，
+        也不必用 bind_all 全局抢占滚轮。指针只会停在已映射的控件上，
+        切换到其他选项卡后此处不响应滚轮。
+        """
+        canvas = self._scroll_canvas
+
+        def on_wheel(e):
+            if e.num == 4 or e.delta > 0:
+                canvas.yview_scroll(-max(1, abs(e.delta) // 120), "units")
+            elif e.num == 5 or e.delta < 0:
+                canvas.yview_scroll(max(1, abs(e.delta) // 120), "units")
+            return "break"
+
+        def bind_rec(w):
+            for seq in ("<MouseWheel>", "<Button-4>", "<Button-5>"):
+                w.bind(seq, on_wheel)
+            for child in w.winfo_children():
+                bind_rec(child)
+        bind_rec(root)
+
     def _build_page_settings(self, parent):
         pad = 5
+        outer = parent  # 滚轮绑定需覆盖外层（画布空白处也在设置页内）
+        parent = self._make_scrollable(parent)
 
         # 主题
         frm = ttk.LabelFrame(parent, text="主题", padding=pad)
@@ -282,6 +351,42 @@ class ConverterApp:
             variable=self.quality_var, value=False,
             command=self._save_config,
         ).pack(anchor="w")
+
+        # 批量转换
+        frm = ttk.LabelFrame(parent, text="批量转换", padding=pad)
+        frm.pack(fill="x", pady=(0, pad))
+
+        self.folder_scan_var = tk.StringVar(value=self.config.folder_scan_mode)
+        ttk.Radiobutton(
+            frm, text="选择转换文件夹时，转换文件夹内所有支持的文件类型",
+            variable=self.folder_scan_var, value="all",
+            command=lambda: [self._update_type_state(), self._save_config()],
+        ).pack(anchor="w")
+        ttk.Radiobutton(
+            frm, text="选择转换文件夹时，只转换指定的文件类型",
+            variable=self.folder_scan_var, value="selected",
+            command=lambda: [self._update_type_state(), self._save_config()],
+        ).pack(anchor="w")
+
+        # 指定类型勾选（仅上一项选中时可勾选）
+        type_row = ttk.Frame(frm)
+        type_row.pack(anchor="w", padx=(pad * 3, 0))
+        self._type_vars = {}
+        self._type_buttons = []
+        for t in _FOLDER_FILE_TYPES:
+            var = tk.BooleanVar(value=t in self.config.folder_file_types)
+            btn = ttk.Checkbutton(
+                type_row, text=t, variable=var, command=self._save_config)
+            btn.pack(side="left", padx=(0, pad))
+            self._type_vars[t] = var
+            self._type_buttons.append(btn)
+        self._update_type_state()
+
+        self.keep_name_var = tk.BooleanVar(value=self.config.keep_output_name)
+        ttk.Checkbutton(
+            frm, text="文件夹转换且输出路径与输入路径不同时，转换后的文件名与原文件名一致",
+            variable=self.keep_name_var, command=self._save_config,
+        ).pack(anchor="w", pady=(2, 0))
 
         frm = ttk.LabelFrame(parent, text="API 配置", padding=pad)
         frm.pack(fill="x", pady=(0, pad))
@@ -358,6 +463,9 @@ class ConverterApp:
             variable=self.convert_fns_var,
         ).pack(anchor="w")
 
+        # 页面内容已建齐，接管滚轮（含后建的各分组控件）
+        self._bind_page_wheel(outer)
+
     def _build_page_about(self, parent):
         info = ttk.Label(
             parent,
@@ -370,7 +478,7 @@ class ConverterApp:
                 "转换效果取决于模型能力，但一般远高于传统转换的正确率。\n\n"
                 "虽然转换时只传输极少部分文本至AI厂商服务器，如果不希望文本被泄露，请不要使用本模块转换文件。\n"
                 "AI转换过程耗时且需向AI厂商提取支付token费用，不建议转换长文本和大文件。\n\n"
-                "模块版本：0.3.2 \n"
+                "模块版本：0.3.3 \n"
                 "使用前请知悉本模块单独采用Anti-996-License 1.0许可证，主程序其余功能仍遵循Apache 2.0协议许可。\n\n"
                 "本模块开源仓库地址：https://github.com/TerryTian-tech/LLMCC \n\n"
                 "规范繁体字形转换器开源仓库地址：https://github.com/TerryTian-tech/OpenCC-Traditional- \n"
@@ -446,7 +554,27 @@ class ConverterApp:
         self.config.force_encoding = self.encoding_var.get()
         self.config.preserve_format = self.preserve_fmt_var.get()
         self.config.convert_footnotes = self.convert_fns_var.get()
+        self.config.folder_scan_mode = self.folder_scan_var.get()
+        self.config.folder_file_types = [
+            t for t in _FOLDER_FILE_TYPES if self._type_vars[t].get()]
+        self.config.keep_output_name = self.keep_name_var.get()
         save_config(self.config, DEFAULT_CONFIG_PATH)
+        self._update_output_hint()
+
+    def _update_type_state(self):
+        # 仅在“只转换指定的文件类型”下可勾选类型
+        state = "normal" if self.folder_scan_var.get() == "selected" else "disabled"
+        for btn in self._type_buttons:
+            btn.configure(state=state)
+
+    def _update_output_hint(self):
+        # 开始转换页的命名提示随设置更新
+        if self.keep_name_var.get():
+            self.output_hint.configure(
+                text="文件夹转换且输出目录不同时，输出文件名与原文件名一致")
+        else:
+            self.output_hint.configure(
+                text="输出文件名由转换器自动生成（如 convert_xxx.txt）")
 
     def _update_config_from_ui(self):
         self.config.api_base_url = self.base_url_var.get().strip()
@@ -463,22 +591,78 @@ class ConverterApp:
     # ── 转换 ──────────────────────────────────────────────
 
     @staticmethod
-    def _predict_output_name(input_file: Path) -> str:
+    def _predict_output_name(input_file: Path, keep_name: bool = False) -> str:
         # 与各转换器的输出命名规则保持一致
+        if keep_name:
+            # 开启“文件名与原文件名一致”时保留原名
+            return input_file.name
         return f"convert_{input_file.name}"
 
-    def _collect_folder_files(self, input_path: Path):
-        """递归收集文件夹（含子文件夹）中所有支持的文件。
+    @staticmethod
+    def _keep_original_name(input_file: Path, output_file: Path, log):
+        """把 convert_ 前缀的输出改回原文件名（keep_name 命名规则）。
+
+        目标名已存在的情形已在转换前经覆盖预检让用户确认过，因此改名
+        采用覆盖语义（replace）；仅在目标被占用、不可写等真正失败时才
+        保留 convert_ 前缀名。
+        """
+        target = output_file.with_name(
+            ConverterApp._predict_output_name(input_file, keep_name=True))
+        if target == output_file:
+            return output_file
+        try:
+            output_file.replace(target)
+        except OSError:
+            log(f"无法改名为 {target.name}（目标被占用或不可写），"
+                f"保留 {output_file.name}")
+            return output_file
+        log(f"输出文件名已改回原文件名: {target.name}")
+        return target
+
+    def _folder_scan_types(self) -> tuple:
+        """文件夹批量转换要扫描的文件类型（按设置页筛选，主线程调用）。"""
+        if self.folder_scan_var.get() == "selected":
+            return tuple(t for t in _FOLDER_FILE_TYPES if self._type_vars[t].get())
+        return _FOLDER_FILE_TYPES
+
+    def _keep_names_enabled(self, input_path: Path, output_dir: Path) -> bool:
+        """是否保留原文件名：仅文件夹转换、输出目录与输入目录不同且设置开启。
+
+        就地转换（输出目录=输入目录）仍用 convert_ 前缀，否则会覆盖原
+        文件；单文件转换不在此设置的作用范围内。
+        """
+        return (input_path.is_dir() and self.keep_name_var.get()
+                and output_dir.resolve() != input_path.resolve())
+
+    def _collect_folder_files(self, input_path: Path, types=_FOLDER_FILE_TYPES,
+                              output_dir: Path = None):
+        """递归收集文件夹（含子文件夹）中指定类型的文件。
 
         返回 (待转换文件列表, 跳过的 convert_ 前缀文件数)；跳过此前
         生成的文件是为了就地转换（输出目录=输入目录）时不反复套娃。
+        输出目录嵌套在输入目录内时，一并跳过输出目录下的文件，避免
+        上次的输出被再次收集（保留原名模式的输出无 convert_ 前缀，
+        仅靠前缀判断不到）；输出目录=输入目录时不排除（就地转换由
+        convert_ 前缀跳过兜底）。
         """
         files = []
-        for pattern in _FOLDER_PATTERNS:
-            files.extend(f for f in input_path.rglob(pattern) if f.is_file())
+        for t in types:
+            files.extend(f for f in input_path.rglob(f"*.{t}") if f.is_file())
         files.sort(key=lambda p: p.relative_to(input_path).as_posix())
-        kept = [f for f in files if not f.name.startswith("convert_")]
-        return kept, len(files) - len(kept)
+        # 输出目录严格嵌套在输入目录内时，按路径前缀排除其下所有文件
+        out_prefix = None
+        if output_dir is not None and output_dir.resolve() != input_path.resolve():
+            out_prefix = os.path.normcase(str(output_dir.resolve())) + os.sep
+        kept = []
+        skipped = 0
+        for f in files:
+            if f.name.startswith("convert_"):
+                skipped += 1
+            elif out_prefix and os.path.normcase(str(f.resolve())).startswith(out_prefix):
+                continue
+            else:
+                kept.append(f)
+        return kept, skipped
 
     @staticmethod
     def _file_output_dir(input_path: Path, file: Path, output_dir: Path) -> Path:
@@ -486,15 +670,17 @@ class ConverterApp:
         # 也避免不同子文件夹里的同名文件在输出时互相覆盖
         return output_dir / file.parent.relative_to(input_path)
 
-    def _collect_overwrites(self, input_path: Path, output_dir: Path):
+    def _collect_overwrites(self, input_path: Path, output_dir: Path,
+                            scan_types=(), keep_names=False):
         """返回本次转换会覆盖的已存在输出文件列表。"""
         if input_path.is_file():
-            outputs = [output_dir / self._predict_output_name(input_path)]
+            outputs = [output_dir / self._predict_output_name(input_path, keep_names)]
         else:
-            candidates, _skipped = self._collect_folder_files(input_path)
+            candidates, _skipped = self._collect_folder_files(
+                input_path, scan_types, output_dir)
             outputs = [
                 self._file_output_dir(input_path, f, output_dir)
-                / self._predict_output_name(f)
+                / self._predict_output_name(f, keep_names)
                 for f in candidates
             ]
         return [p for p in outputs if p.exists()]
@@ -524,7 +710,17 @@ class ConverterApp:
             messagebox.showerror("错误", "请先填写 API Key")
             return
 
-        overwrites = self._collect_overwrites(input_path, output_dir)
+        # 在主线程读取 UI 状态（tkinter 非线程安全，worker 线程不直接读取）
+        scan_types = self._folder_scan_types() if input_path.is_dir() else ()
+        if input_path.is_dir() and not scan_types:
+            messagebox.showerror(
+                "错误", "“只转换指定的文件类型”未勾选任何类型，请先在初始设置中勾选")
+            return
+        # 仅文件夹转换：输出目录与输入目录不同且设置开启时，输出改回原文件名
+        keep_names = self._keep_names_enabled(input_path, output_dir)
+
+        overwrites = self._collect_overwrites(
+            input_path, output_dir, scan_types, keep_names)
         if overwrites:
             # 显示相对输出目录的路径，子文件夹中的文件一目了然
             names = [str(p.relative_to(output_dir)) for p in overwrites]
@@ -551,11 +747,12 @@ class ConverterApp:
             "force_encoding": None if enc == "自动检测" else enc,
             "preserve_format": self.preserve_fmt_var.get(),
             "convert_footnotes": self.convert_fns_var.get(),
+            "keep_output_name": keep_names,
         }
 
         self._worker_thread = threading.Thread(
             target=self._convert_worker,
-            args=(input_path, output_dir, direction, options),
+            args=(input_path, output_dir, direction, options, scan_types),
         )
         self._worker_thread.daemon = True
         self._worker_thread.start()
@@ -564,12 +761,14 @@ class ConverterApp:
         self._cancel_event.set()
         self._log("正在取消…")
 
-    def _convert_worker(self, input_path, output_dir, direction, options):
+    def _convert_worker(self, input_path, output_dir, direction, options,
+                        scan_types=()):
         try:
             if input_path.is_file():
                 self._convert_single_file(input_path, output_dir, direction, options)
             elif input_path.is_dir():
-                self._convert_folder(input_path, output_dir, direction, options)
+                self._convert_folder(input_path, output_dir, direction, options,
+                                     scan_types)
             else:
                 self.root.after(
                     0, lambda: messagebox.showerror("错误", "输入路径无效")
@@ -656,18 +855,25 @@ class ConverterApp:
         if self._cancel_event.is_set():
             self.root.after(0, lambda: self._log("已取消"))
         elif result:
+            if options.get("keep_output_name"):
+                result = self._keep_original_name(input_path, Path(result), log)
             self.root.after(0, lambda r=result: self._log(f"完成：{r}"))
         else:
             self.root.after(0, lambda: self._log("转换失败"))
 
-    def _convert_folder(self, input_path, output_dir, direction, options):
-        files, generated = self._collect_folder_files(input_path)
+    def _convert_folder(self, input_path, output_dir, direction, options,
+                        scan_types=()):
+        files, generated = self._collect_folder_files(
+            input_path, scan_types, output_dir)
         if generated:
             self.root.after(0, lambda: self._log(
                 f"跳过 {generated} 个此前已生成的 convert_ 前缀文件"))
 
         if not files:
-            self.root.after(0, lambda: self._log("输入文件夹中没有支持的文件"))
+            msg = "输入文件夹中没有支持的文件"
+            if tuple(scan_types) != _FOLDER_FILE_TYPES:
+                msg += f"（筛选类型：{'、'.join(scan_types)}）"
+            self.root.after(0, lambda m=msg: self._log(m))
             return
 
         self.root.after(0, lambda: self._log(
